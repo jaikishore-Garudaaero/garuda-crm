@@ -77,7 +77,7 @@ function renderLogin(msg = '', view = 'password', email = '') {
     const go = $('#lgo'); go.disabled = true; go.classList.add('busy');
     try {
       if (view === 'forgot') {
-        const { error } = await DB.sb.auth.resetPasswordForEmail(email, { redirectTo: backTo() }); if (error) throw error;
+        const { error } = await DB.sb.auth.resetPasswordForEmail(email, { redirectTo: backTo() + '?reset=1' }); if (error) throw error;
         say(`If ${email} is registered, a reset link is on its way. Check your inbox and spam.`);
       } else if (view === 'link') {
         const { error } = await DB.sb.auth.signInWithOtp({ email, options: { emailRedirectTo: backTo(), shouldCreateUser: true } }); if (error) throw error;
@@ -136,7 +136,7 @@ function renderSetPassword(kind) {
     if (!pwOk(a, email)) return (msg.textContent = 'The password needs every tick above.');
     if (a !== b) return (msg.textContent = 'The two passwords do not match.');
     $('#pgo').disabled = true;
-    const { error } = await DB.sb.auth.updateUser({ password: a });
+    const { error } = await DB.sb.auth.updateUser({ password: a, data: { pw_set: true } });
     $('#pgo').disabled = false;
     if (error) return (msg.textContent = authMsg(error.message));
     try { sessionStorage.removeItem('garuda-auth-link'); } catch (_) { /* ignore */ }
@@ -147,9 +147,17 @@ function renderSetPassword(kind) {
 }
 /* does this person still have to choose a password? 'reset' (came from a reset link), 'first' (no password yet) or '' */
 async function passwordStep() {
+  const prov = DB.session?.user?.app_metadata?.provider; if (prov && prov !== 'email') return '';
+  /* signed in with a password: they know it, so never force a new one (and forget any old reset flag) */
+  let amr = []; try { amr = JSON.parse(atob(DB.session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).amr || []; } catch (_) { /* ignore */ }
+  if (amr.some((x) => x.method === 'password')) {
+    try { sessionStorage.removeItem('garuda-auth-link'); } catch (_) { /* ignore */ }
+    if (!DB.session.user.user_metadata?.pw_set) DB.sb.auth.updateUser({ data: { pw_set: true } }).catch(() => {});
+    return '';
+  }
+  /* opened a "Reset password" email: choose a new password (only for reset emails, never for sign-in links) */
   let link = ''; try { link = sessionStorage.getItem('garuda-auth-link') || ''; } catch (_) { /* ignore */ }
   if (link === 'recovery') return 'reset';
-  const prov = DB.session?.user?.app_metadata?.provider; if (prov && prov !== 'email') return '';
   try { const { data, error } = await DB.sb.rpc('i_have_password'); if (error) return ''; return data === false ? 'first' : ''; } catch (_) { return ''; }
 }
 /* the menu's Change password: the current one is checked first */
@@ -167,7 +175,7 @@ async function setPasswordModal() {
     if (!pwOk(a, email)) throw new Error('The new password needs every tick.');
     if (a !== b) throw new Error('The two new passwords do not match.');
     if (has) { const { error } = await DB.sb.auth.signInWithPassword({ email, password: v(m.el, 'pw0') }); if (error) throw new Error(/invalid/i.test(error.message) ? 'The current password is not right.' : authMsg(error.message)); }
-    const { error } = await DB.sb.auth.updateUser({ password: a });
+    const { error } = await DB.sb.auth.updateUser({ password: a, data: { pw_set: true } });
     if (error) throw new Error(authMsg(error.message));
     m.close();
   }, 'Password saved');

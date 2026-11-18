@@ -131,7 +131,8 @@ const TABLES = ['profiles', 'sales_targets', 'chat_messages', 'work_tasks', 'wor
   'price_disclosures', 'payments', 'events', 'event_attendees', 'visits', 'email_templates', 'email_queue',
   'unsubscribes', 'automation_rules', 'ai_insights', 'projects', 'complaints', 'targets', 'revenue_entries', 'admissions', 'admission_sources',
   'email_contacts', 'email_lists', 'email_list_members', 'email_sequences', 'sequence_steps', 'sequence_enrollments', 'email_clicks'];
-const RT_TABLES = ['leads', 'remarks', 'payments', 'price_disclosures', 'email_queue', 'visits', 'event_attendees', 'revenue_entries', 'admissions', 'complaints', 'projects', 'project_items', 'work_tasks', 'work_subtasks', 'chat_messages', 'sales_targets'];
+const RT_TABLES = ['leads', 'remarks', 'payments', 'price_disclosures', 'email_queue', 'visits', 'event_attendees', 'revenue_entries', 'admissions', 'complaints', 'projects', 'project_items', 'work_tasks', 'work_subtasks', 'chat_messages', 'sales_targets',
+  'profiles', 'departments', 'stages', 'products', 'product_items', 'institutions', 'contacts', 'mkt_campaigns', 'campaign_spend', 'revenue_targets', 'events', 'admission_sources', 'campaign_types'];
 /* screens retired in v3 (tasks, approvals, EOD & MIS, training calendar): kept empty so nothing old can break */
 const RETIRED = ['tasks', 'batches', 'eod_reports', 'business_tasks', 'review_meetings', 'review_items', 'daily_mom', 'comments', 'approval_rules', 'approvals'];
 const PAGE = 1000;
@@ -139,7 +140,9 @@ const PAGE = 1000;
 const ORDER_KEYS = { departments: ['code'], revenue_targets: ['dept', 'month'], campaign_types: ['name'], stages: ['funnel', 'key'], unsubscribes: ['email'], email_list_members: ['list_id', 'contact_id'] }; /* Supabase returns at most 1,000 rows per request, so every table is read in pages */
 
 /* a reset or invite link: remember it before the Supabase client reads the address, so the CRM asks for a new password */
-(() => { const m = (location.hash + '&' + location.search).match(/type=(recovery|invite)/); if (m) { try { sessionStorage.setItem('garuda-auth-link', m[1] === 'recovery' ? 'recovery' : 'invite'); } catch (_) { /* ignore */ } } })();
+/* only a "Reset password" email asks for a new password; sign-in links (which Supabase may also mark as recovery) do not */
+const RESET_LINK = /[?&]reset=1/.test(location.search);
+(() => { const m = (location.hash + '&' + location.search).match(/type=(recovery|invite)/); if (m) { try { sessionStorage.setItem('garuda-auth-link', m[1] === 'recovery' && RESET_LINK ? 'recovery' : 'invite'); } catch (_) { /* ignore */ } } })();
 const DB = {
   mode: 'live', loadErrors: [], sb: null, session: null, me: null, t: {}, settings: {}, listeners: new Set(), rtTimer: null,
 
@@ -150,7 +153,7 @@ const DB = {
     this.keep = keep;
     this.sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: keep ? window.localStorage : window.sessionStorage } });
     this.sb.auth.onAuthStateChange((e, s) => {
-      if (e === 'PASSWORD_RECOVERY') { try { sessionStorage.setItem('garuda-auth-link', 'recovery'); } catch (_) { /* ignore */ } }
+      if (e === 'PASSWORD_RECOVERY' && RESET_LINK) { try { sessionStorage.setItem('garuda-auth-link', 'recovery'); } catch (_) { /* ignore */ } }
       /* reload only when someone signs in or out after the page has started; the start-up events
          (INITIAL_SESSION, a link being read from the address, token refresh) must not reload, or the page loops */
       if (!this.ready || !['SIGNED_IN', 'SIGNED_OUT'].includes(e)) { this.session = s; return; }
@@ -217,12 +220,31 @@ const DB = {
     RT_TABLES.forEach((t) => {
       ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (p) => {
         const arr = this.t[t] || (this.t[t] = []);
-        if (p.eventType === 'DELETE') { const i = arr.findIndex((x) => x.id === p.old.id); if (i >= 0) arr.splice(i, 1); }
-        else { const i = arr.findIndex((x) => x.id === p.new.id); if (i >= 0) arr[i] = p.new; else arr.push(p.new); }
+        const keys = ORDER_KEYS[t] || ['id']; const same = (a, b) => keys.every((k) => a?.[k] === b?.[k]);
+        if (p.eventType === 'DELETE') { const i = arr.findIndex((x) => same(x, p.old)); if (i >= 0) arr.splice(i, 1); }
+        else { const i = arr.findIndex((x) => same(x, p.new)); if (i >= 0) arr[i] = p.new; else arr.push(p.new); }
+        if (t === 'profiles' && this.me && p.new?.id === this.me.id) this.me = p.new;
         clearTimeout(this.rtTimer); this.rtTimer = setTimeout(() => this.emit(), 400);
       });
     });
     ch.subscribe();
+    this.channel = ch;
+    /* a phone or laptop that slept misses live updates: coming back after a minute reloads everything quietly */
+    if (!this.wakeBound) {
+      this.wakeBound = true; let hiddenAt = 0;
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { hiddenAt = Date.now(); return; }
+        if (hiddenAt && Date.now() - hiddenAt > 60e3) this.refresh();
+      });
+      setInterval(() => { if (!document.hidden) this.refresh(); }, 5 * 60e3);   /* and every 5 minutes on screen */
+    }
+  },
+  async refresh() {
+    if (this.refreshing || !this.session) return; this.refreshing = true;
+    try {
+      const keepMe = this.me; if (this.channel) { try { await this.sb.removeChannel(this.channel); } catch (_) { /* ignore */ } }
+      await this.load(); this.me = this.me || keepMe; this.emit();
+    } catch (e) { console.warn('Refresh failed', e); } finally { this.refreshing = false; }
   },
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
   emit() { this.listeners.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); },

@@ -105,10 +105,21 @@ function shrinkLogo(file) {
 let usersTab = 'table';
 const below = (pid) => scopeIds(pid).size - 1;
 /* sign-in state per person (Admins): last sign-in, password set, invited */
-let SIGNIN = null;
+let SIGNIN = null, SIGNIN_AT = 0, SIGNIN_BUSY = false, SIGNIN_TIMER = null;
+/* fetched again every 20 seconds while Users & Access is open, so a person who just signed in shows up without a refresh */
 async function loadSignIns(rer) {
-  if (SIGNIN || !isHead()) return; SIGNIN = new Map();
-  try { const { data } = await DB.sb.rpc('sign_in_status'); (data || []).forEach((r) => SIGNIN.set(r.profile_id, r)); rer?.(); } catch (_) { /* older database: statuses stay simple */ }
+  if (!isHead() || SIGNIN_BUSY || Date.now() - SIGNIN_AT < 15e3) return;
+  SIGNIN_BUSY = true;
+  try {
+    const { data, error } = await DB.sb.rpc('sign_in_status');
+    if (!error) {
+      const next = new Map(); (data || []).forEach((r) => next.set(r.profile_id, r));
+      const changed = !SIGNIN || JSON.stringify([...next]) !== JSON.stringify([...SIGNIN]);
+      SIGNIN = next; SIGNIN_AT = Date.now(); if (changed) rer?.();
+    }
+  } catch (_) { /* older database: statuses stay simple */ } finally { SIGNIN_BUSY = false; }
+  clearInterval(SIGNIN_TIMER);
+  SIGNIN_TIMER = setInterval(() => { if (!document.querySelector('#uinvall')) { clearInterval(SIGNIN_TIMER); return; } if (!document.hidden && !document.querySelector('.modal')) loadSignIns(rer); }, 20e3);
 }
 function userStatus(p) {
   if (!p.active) return '<span class="chip">Deactivated · cannot sign in</span>';
@@ -122,8 +133,9 @@ function userStatus(p) {
 /* sign-in emails go out from Supabase: an invite (a sign-in link; the first visit asks for a password) or a password reset */
 async function sendSignIn(p, kind) {
   const to = location.origin + location.pathname;
-  const { error } = kind === 'reset' ? await DB.sb.auth.resetPasswordForEmail(p.email, { redirectTo: to }) : await DB.sb.auth.signInWithOtp({ email: p.email, options: { emailRedirectTo: to, shouldCreateUser: true } });
+  const { error } = kind === 'reset' ? await DB.sb.auth.resetPasswordForEmail(p.email, { redirectTo: to + '?reset=1' }) : await DB.sb.auth.signInWithOtp({ email: p.email, options: { emailRedirectTo: to, shouldCreateUser: true } });
   if (error) throw new Error(typeof authMsg === 'function' ? authMsg(error.message) : error.message);
+  SIGNIN_AT = 0;
   toast(kind === 'reset' ? `Password reset email sent to ${p.email}` : `Invite sent to ${p.email}. They open it, then create their password.`);
 }
 function setUsers(b, rer) {
