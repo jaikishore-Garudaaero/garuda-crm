@@ -151,6 +151,9 @@ const DB = {
     this.sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: keep ? window.localStorage : window.sessionStorage } });
     this.sb.auth.onAuthStateChange((e, s) => {
       if (e === 'PASSWORD_RECOVERY') { try { sessionStorage.setItem('garuda-auth-link', 'recovery'); } catch (_) { /* ignore */ } }
+      /* reload only when someone signs in or out after the page has started; the start-up events
+         (INITIAL_SESSION, a link being read from the address, token refresh) must not reload, or the page loops */
+      if (!this.ready || !['SIGNED_IN', 'SIGNED_OUT'].includes(e)) { this.session = s; return; }
       const had = !!this.session; this.session = s; if (!!s !== had) location.reload();
     });
   },
@@ -162,6 +165,7 @@ const DB = {
       this.makeClient(keep);
       const { data } = await this.sb.auth.getSession();
       this.session = data.session;
+      this.ready = true;
     } else {
       throw new Error('NOT_CONFIGURED');
     }
