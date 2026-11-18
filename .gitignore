@@ -1,0 +1,6 @@
+# private data stays out of git
+supabase/import/
+supabase/seed.sql
+supabase/migration_nx.sql
+tests/
+.env*
