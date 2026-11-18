@@ -342,11 +342,11 @@ VIEWS.mydash = {
         ${kpi({ label: 'Visits done', value: nfmt(s.visits), sub: r.label })}
         ${kpi({ label: 'Open tasks', value: nfmt(tasks.length), sub: `${tasks.filter((t) => taskTone(t) === 'bad').length} overdue` })}
       </div>
-      <div class="grid g2">
+      ${taskOverview(DB.t.work_tasks.filter((t) => t.owner === DB.me.id || subOwners(t.id).has(DB.me.id)), { title: 'My tasks' })}
+      <div class="grid">
         <section class="glass panel"><div class="panel-head"><h2><span class="gtag red">Follow-ups</span> Overdue and today</h2><span class="sub">${over.length} overdue · ${todayF.length} today</span></div>
           ${over.length || todayF.length ? leadRows([...over, ...todayF].slice(0, 12), { showOwner: false }) : '<p class="faint">You are up to date. Nothing overdue and nothing left for today.</p>'}</section>
-        <section class="glass panel"><div class="panel-head"><h2><span class="gtag amber">Tasks</span> My open tasks</h2><a class="sub" href="#taskdash">Task Dashboard →</a></div>
-          ${tasks.length ? `<div class="tlist">${tasks.slice(0, 6).map((t) => taskCard(t, { open: false })).join('')}</div>` : '<p class="faint">No open tasks on your name.</p>'}</section>
+
       </div>
       <div class="grid g2">
         <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Visits</span> Next and missed</h2><a class="sub" href="#visits">Field Visits →</a></div>
@@ -356,7 +356,7 @@ VIEWS.mydash = {
           ${deals.length ? `<ul class="dlist">${deals.slice(0, 8).map((l) => `<li><button data-lead="${l.id}"><span class="grow"><b>${esc(L.title(l))}</b><span class="s">${esc(l.funnel)} · ${esc(l.stage)} · ${L.prob(l)}%</span></span><span class="r"><b>${inr(l.value)}</b><span class="chip tone ${!l.expected_close ? 'warn' : l.expected_close < todayStr() ? 'bad' : stageTone(l)}">${l.expected_close ? fmtDate(l.expected_close) : 'No date'}</span></span></button></li>`).join('')}</ul>` : '<p class="faint">No open deals yet.</p>'}</section>
       </div>
       ${s.kra ? `<section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">KRA</span> My KRA</h2><span class="sub">${r.label}</span></div>${kraTable(s.kra)}</section>` : ''}`;
-    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindLeadClicks(el); bindTaskCards(el, () => this.render(el));
+    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindLeadClicks(el); bindTaskCards(el, () => this.render(el)); bindTaskOverview(el, () => this.render(el));
     el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
     loadWeather(el.querySelector('#wx'));
   },
@@ -444,7 +444,7 @@ function remindTick() {
   for (const a of xs) {
     const last = RM.pinged.get(a.id) || 0; if (Date.now() - last < 30 * 6e4 || shown >= 2) continue;
     RM.pinged.set(a.id, Date.now()); shown++;
-    alertToast(a);
+    alertToast(a); if (shown === 1) chime('alert');
     try { if ('Notification' in window && window.Notification.permission === 'granted' && document.hidden) { const n = new window.Notification('Garuda CRM · ' + a.title.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&'), { body: (a.sub || '').replace(/<[^>]+>/g, ''), tag: a.id }); n.onclick = () => { window.focus(); openAlert(a.to); }; } } catch (_) { /* not allowed here */ }
   }
   refreshBell();

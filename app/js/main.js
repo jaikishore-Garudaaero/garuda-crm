@@ -235,7 +235,7 @@ function renderShell() {
       <div class="sb-foot">
         <div class="sb-theme" data-tip="${isDark() ? 'Dark mode' : 'Light mode'}">${svg(isDark() ? 'moon' : 'sun')}<span class="lbl">Night mode</span>${themeSwitch('thm', sbMini)}</div>
         <button class="sb-user" id="sbuser" aria-haspopup="menu"><span class="av">${esc(initials(DB.me.full_name))}<i></i>${setBadge ? `<b class="avb">${setBadge}</b>` : ''}</span><span class="lbl"><b>${esc(DB.me.full_name)}</b><span class="faint">${esc(DB.me.designation || ROLES[DB.me.role] || '')}</span></span>${svg('updown')}</button>
-        <div class="sb-menu glass" id="sbmenu" hidden><div class="faint" style="font-size:11.5px;padding:4px 8px">${esc(DB.me.email)}</div>${menuItems().map((x) => `<button data-v="${x[0]}" ${ST.view === x[0] ? 'aria-current="page"' : ''}>${svg(x[2])} ${x[1]}${x[0] === 'settings' && setBadge ? ` <span class="badge">${setBadge}</span>` : ''}</button>`).join('')}${menuItems().length ? '<hr>' : ''}<button id="setpw">${svg('lock')} Change password</button><button id="signout">${svg('out')} Sign out</button><button id="signoutall">${svg('lock')} Sign out everywhere</button></div>
+        <div class="sb-menu glass" id="sbmenu" hidden><div class="faint" style="font-size:11.5px;padding:4px 8px">${esc(DB.me.email)}</div>${menuItems().map((x) => `<button data-v="${x[0]}" ${ST.view === x[0] ? 'aria-current="page"' : ''}>${svg(x[2])} ${x[1]}${x[0] === 'settings' && setBadge ? ` <span class="badge">${setBadge}</span>` : ''}</button>`).join('')}${menuItems().length ? '<hr>' : ''}<button id="sndtg">${svg('sound')} Sound: ${SOUND.on() ? 'on' : 'off'}</button><button id="setpw">${svg('lock')} Change password</button><button id="signout">${svg('out')} Sign out</button><button id="signoutall">${svg('lock')} Sign out everywhere</button></div>
       </div>
     </aside>
     <main class="main">
@@ -255,6 +255,7 @@ function renderShell() {
   $('#sbuser').onclick = (e) => { e.stopPropagation(); const mm = $('#sbmenu'); mm.hidden = !mm.hidden; };
   bindTheme(document);
   $('#signout')?.addEventListener('click', () => DB.sb.auth.signOut());
+  $('#sndtg')?.addEventListener('click', (e) => { e.stopPropagation(); const on = !SOUND.on(); try { localStorage.setItem('garuda-sound', on ? '1' : '0'); } catch (_) { /* ignore */ } e.currentTarget.innerHTML = `${svg('sound')} Sound: ${on ? 'on' : 'off'}`; if (on) chime('task'); toast(on ? 'Sound on' : 'Sound off'); });
   $('#signoutall')?.addEventListener('click', async () => { if (await confirmBox('Sign out on every phone and computer where you are signed in?', 'Sign out everywhere')) DB.sb.auth.signOut({ scope: 'global' }); });
   $('#setpw')?.addEventListener('click', setPasswordModal);
   bindBell();

@@ -3194,3 +3194,125 @@ revoke all on function public.sign_in_status() from public, anon;
 revoke all on function public.i_have_password() from public, anon;
 grant execute on function public.sign_in_status() to authenticated;
 grant execute on function public.i_have_password() to authenticated;
+
+-- =====================================================================
+-- v4.5 · Live updates for people and settings; sign-in status that matches how invites work
+--   An invite is a sign-in link, so "invited" = the link was sent; "has a password" = the person chose one in the CRM
+--   (recorded as pw_set on their sign-in account), not Supabase's internal placeholder password.
+-- =====================================================================
+do $$ declare t text; begin
+  foreach t in array array['profiles','departments','stages','products','product_items','institutions','contacts','mkt_campaigns','campaign_spend','revenue_targets','events','admission_sources','campaign_types'] loop
+    begin execute format('alter publication supabase_realtime add table public.%I', t); exception when others then null; end;
+  end loop;
+end $$;
+alter table public.departments replica identity full;
+alter table public.stages replica identity full;
+alter table public.revenue_targets replica identity full;
+alter table public.campaign_types replica identity full;
+create or replace function public.sign_in_status()
+returns table(profile_id uuid, last_sign_in_at timestamptz, invited_at timestamptz, confirmed boolean, has_password boolean, blocked boolean)
+language sql stable security definer set search_path = public, auth as $$
+  select p.id, u.last_sign_in_at, coalesce(u.invited_at, u.confirmation_sent_at, u.recovery_sent_at), u.email_confirmed_at is not null,
+         coalesce((u.raw_user_meta_data->>'pw_set')::boolean, false), coalesce(u.banned_until > now(), false)
+    from public.profiles p left join auth.users u on u.id = p.auth_id
+   where public.is_head()
+$$;
+create or replace function public.i_have_password() returns boolean
+language sql stable security definer set search_path = public, auth as $$
+  select coalesce((select (raw_user_meta_data->>'pw_set')::boolean from auth.users where id = auth.uid()), false)
+$$;
+revoke all on function public.sign_in_status() from public, anon;
+revoke all on function public.i_have_password() from public, anon;
+grant execute on function public.sign_in_status() to authenticated;
+grant execute on function public.i_have_password() to authenticated;
+-- =====================================================================
+-- v4.5 · Task emails: a task or sub-task given to someone emails them, and the person who gave it
+--   Emails go into email_queue; with a Brevo API key in Supabase Vault (name: brevo_api_key) they are sent at once.
+-- =====================================================================
+insert into public.settings(key, value) values ('notify_email', '{"enabled":true,"from_email":"jaikishore@garudaaerospace.com","from_name":"Garuda CRM","app_url":"https://garuda-crm.vercel.app"}')
+on conflict (key) do nothing;
+do $$ begin create extension if not exists pg_net; exception when others then null; end $$;
+
+create or replace function public.send_mail(p_to text, p_name text, p_subject text, p_html text, p_rule text default 'task_notify') returns void
+language plpgsql security definer set search_path = public as $$
+declare cfg jsonb; api_key text; qid uuid; body jsonb;
+begin
+  if coalesce(p_to, '') = '' then return; end if;
+  select value into cfg from public.settings where key = 'notify_email';
+  if cfg is not null and coalesce((cfg->>'enabled')::boolean, true) = false then return; end if;
+  perform set_config('garuda.system', 'on', true);
+  insert into public.email_queue(to_email, to_name, category, subject, html, auto_rule, created_by)
+    values (p_to, coalesce(p_name, ''), 'Internal update', p_subject, p_html, p_rule, null) returning id into qid;
+  perform set_config('garuda.system', 'off', true);
+  if to_regclass('vault.decrypted_secrets') is not null then
+    execute 'select decrypted_secret from vault.decrypted_secrets where name = $1 limit 1' into api_key using 'brevo_api_key';
+  end if;
+  if coalesce(api_key, '') <> '' and to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is not null then
+    body := jsonb_build_object('sender', jsonb_build_object('email', coalesce(cfg->>'from_email', 'jaikishore@garudaaerospace.com'), 'name', coalesce(cfg->>'from_name', 'Garuda CRM')),
+      'to', jsonb_build_array(jsonb_build_object('email', p_to, 'name', coalesce(nullif(p_name, ''), p_to))), 'subject', p_subject, 'htmlContent', p_html);
+    execute 'select net.http_post(url := $1, body := $2, params := ''{}''::jsonb, headers := $3, timeout_milliseconds := 8000)'
+      using 'https://api.brevo.com/v3/smtp/email', body, jsonb_build_object('api-key', api_key, 'content-type', 'application/json', 'accept', 'application/json');
+    update public.email_queue set status = 'Sent', sent_at = now() where id = qid;
+  end if;
+end $$;
+revoke all on function public.send_mail(text, text, text, text, text) from public, anon, authenticated;
+
+create or replace function public.task_mail_html(p_head text, p_title text, p_rows jsonb, p_notes text, p_link text) returns text
+language sql immutable as $$
+  select '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1c2333">'
+    || '<p style="font-size:13px;color:#6b7590;margin:0 0 6px">Garuda CRM</p>'
+    || '<h2 style="margin:0 0 4px;font-size:18px">' || public.html_esc(p_head) || '</h2>'
+    || '<p style="font-size:16px;font-weight:bold;margin:10px 0 12px">' || public.html_esc(p_title) || '</p>'
+    || '<table style="border-collapse:collapse;font-size:14px">'
+    || coalesce((select string_agg('<tr><td style="padding:3px 14px 3px 0;color:#6b7590">' || public.html_esc(r->>0) || '</td><td style="padding:3px 0"><b>' || public.html_esc(r->>1) || '</b></td></tr>', '') from jsonb_array_elements(p_rows) r where coalesce(r->>1, '') <> ''), '')
+    || '</table>'
+    || case when coalesce(p_notes, '') <> '' then '<p style="font-size:14px;line-height:1.5;background:#f3f5fa;border-radius:10px;padding:10px 12px">' || public.html_esc(p_notes) || '</p>' else '' end
+    || '<p style="margin:18px 0"><a href="' || p_link || '" style="background:#3a5fd9;color:#fff;text-decoration:none;padding:10px 18px;border-radius:999px;font-weight:bold">Open the task</a></p>'
+    || '<p style="font-size:12px;color:#8a93a8">You get this email because a task in Garuda CRM was given to you or by you.</p></div>'
+$$;
+
+create or replace function public.task_assign_notify() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare giver uuid; a record; g record; url text; rows jsonb; lk text;
+begin
+  if new.owner is null then return new; end if;
+  if tg_op = 'UPDATE' and new.owner is not distinct from old.owner then return new; end if;
+  giver := coalesce(public.me(), new.created_by);
+  if giver is null or giver = new.owner then return new; end if;
+  select full_name, email into a from public.profiles where id = new.owner;
+  select full_name, email into g from public.profiles where id = giver;
+  url := coalesce((select value->>'app_url' from public.settings where key = 'notify_email'), '') || '/#tasks/' || new.id;
+  lk := (select coalesce(nullif(l.name, ''), '') from public.leads l where l.id = new.lead_id);
+  rows := jsonb_build_array(jsonb_build_array('Given by', g.full_name), jsonb_build_array('Assigned to', a.full_name),
+    jsonb_build_array('Due', to_char(new.due_date, 'DD Mon YYYY')), jsonb_build_array('Priority', new.priority), jsonb_build_array('Lead / deal', lk));
+  perform public.send_mail(a.email, a.full_name, 'New task from ' || coalesce(g.full_name, 'Garuda CRM') || ': ' || new.title,
+    public.task_mail_html(coalesce(g.full_name, 'Someone') || ' gave you a task', new.title, rows, new.notes, url));
+  perform public.send_mail(g.email, g.full_name, 'You assigned a task to ' || coalesce(a.full_name, '') || ': ' || new.title,
+    public.task_mail_html('You assigned a task to ' || coalesce(a.full_name, ''), new.title, rows, new.notes, url));
+  return new;
+end $$;
+drop trigger if exists trg_task_assign_notify on public.work_tasks;
+create trigger trg_task_assign_notify after insert or update of owner on public.work_tasks for each row execute function public.task_assign_notify();
+
+create or replace function public.subtask_assign_notify() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare giver uuid; a record; g record; t record; url text; rows jsonb;
+begin
+  if new.owner is null then return new; end if;
+  if tg_op = 'UPDATE' and new.owner is not distinct from old.owner then return new; end if;
+  select * into t from public.work_tasks where id = new.task_id;
+  giver := coalesce(public.me(), t.created_by);
+  if giver is null or giver = new.owner then return new; end if;
+  select full_name, email into a from public.profiles where id = new.owner;
+  select full_name, email into g from public.profiles where id = giver;
+  url := coalesce((select value->>'app_url' from public.settings where key = 'notify_email'), '') || '/#tasks/' || new.task_id;
+  rows := jsonb_build_array(jsonb_build_array('In task', t.title), jsonb_build_array('Given by', g.full_name), jsonb_build_array('Assigned to', a.full_name),
+    jsonb_build_array('Due', to_char(new.due_date, 'DD Mon YYYY')));
+  perform public.send_mail(a.email, a.full_name, 'New sub-task from ' || coalesce(g.full_name, 'Garuda CRM') || ': ' || new.title,
+    public.task_mail_html(coalesce(g.full_name, 'Someone') || ' gave you a sub-task', new.title, rows, null, url));
+  perform public.send_mail(g.email, g.full_name, 'You assigned a sub-task to ' || coalesce(a.full_name, '') || ': ' || new.title,
+    public.task_mail_html('You assigned a sub-task to ' || coalesce(a.full_name, ''), new.title, rows, null, url));
+  return new;
+end $$;
+drop trigger if exists trg_subtask_assign_notify on public.work_subtasks;
+create trigger trg_subtask_assign_notify after insert or update of owner on public.work_subtasks for each row execute function public.subtask_assign_notify();

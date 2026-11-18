@@ -41,7 +41,7 @@ const ICON = {
   own: '<circle cx="7" cy="7" r="3"/><path d="M2 20c.6-3 2.6-5 5-5s4.4 2 5 5"/><path d="M14 6h8M14 11h8M14 16h8"/>',
   appr: '<path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/>',
   ads: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
-  chat: '<path d="M4 5h16v11H8l-4 4z"/>',
+  chat: '<path d="M4 5h16v11H8l-4 4z"/>', kanban: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/>', sound: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12"/>',
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
   team: '<circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2.5 19c.7-3.2 2.8-5 5.5-5s4.8 1.8 5.5 5M14 14.5c2.6-.6 5.6.6 6.5 4.5"/>',
   board: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/>',

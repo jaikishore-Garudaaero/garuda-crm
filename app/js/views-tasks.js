@@ -102,8 +102,9 @@ function tabTasks(l, el, ctx) {
   bindTaskCards(el, () => ctx.render());
 }
 
-/* ---------- Tasks: line items of every task and sub-task in my scope ---------- */
-const TF = { state: 'open', q: '', mine: false, byme: false };
+/* ---------- Tasks: a task manager (board and list), a task drawer with sub-tasks, and live alerts ---------- */
+const TF = { scope: 'mine', view: 'board', q: '', pri: '', showDone: false };
+const TSTAT = [['Open', 'To do', 'info'], ['In progress', 'In progress', 'warn'], ['Done', 'Done', 'good']];
 function scopedTasks() {
   return DB.t.work_tasks.filter((t) => {
     const l = t.lead_id && DB.get('leads', t.lead_id);
@@ -112,30 +113,237 @@ function scopedTasks() {
     return true;
   });
 }
+/* tasks I own, tasks with a sub-task on my name, tasks I gave others, or everything in my scope */
+const subOwners = (id) => new Set(taskSubs(id).map((x) => x.owner).filter(Boolean));
+function tasksFor(scope) {
+  const me = DB.me.id; const all = scopedTasks();
+  if (scope === 'mine') return all.filter((t) => t.owner === me || subOwners(t.id).has(me));
+  if (scope === 'given') return all.filter((t) => t.created_by === me && t.owner !== me);
+  return all;
+}
+const avHTML = (pid, cls = 'sm') => (pid ? `<span class="av ${cls}" style="background:${personColor(pid)}" title="${esc(DB.pname(pid))}">${esc(initials(DB.pname(pid)))}</span>` : `<span class="av ${cls} none" title="Unassigned">?</span>`);
+function personColor(pid) { const c = ['#3a6fe0', '#7b5cf0', '#c2457a', '#14a3a0', '#e08a2a', '#2fb36a', '#d0503c', '#5b6bd6']; let h = 0; for (const ch of String(pid)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return c[h % c.length]; }
+function dueBadge(t) {
+  if (!t.due_date) return '';
+  const today = todayStr(); const d = t.due_date; const late = taskOpen(t) && d < today; const tod = d === today; const soon = !late && !tod && daysAgo(d) >= -2;
+  const cls = t.status === 'Done' ? 'good' : late ? 'bad' : tod ? 'warn' : soon ? 'warn' : '';
+  const word = late ? `${fmtDate(d)} · late` : tod ? 'Today' : daysAgo(d) === -1 ? 'Tomorrow' : fmtDate(d);
+  return `<span class="tk-due ${cls}">${svg('cal')} ${word}</span>`;
+}
+const priFlag = (p) => (p && p !== 'Normal' ? `<span class="tk-pri p-${p.toLowerCase()}" title="${p} priority">${svg('flag')} ${p}</span>` : '');
+function tkCard(t) {
+  const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t); const pct = taskPct(t);
+  return `<article class="tk-card pri-${(t.priority || 'Normal').toLowerCase()} ${t.status === 'Done' ? 'is-done' : ''}" draggable="true" data-tk="${t.id}" tabindex="0" aria-label="${esc(t.title)}">
+    <div class="tk-top">${priFlag(t.priority)}${lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
+    <b class="tk-title">${esc(t.title)}</b>
+    ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
+    <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Updates">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
+      ${t.created_by && t.created_by !== t.owner ? `<span class="tk-from" title="Given by ${esc(DB.pname(t.created_by))}">${avHTML(t.created_by, 'xs')}${svg('chevr')}</span>` : ''}${avHTML(t.owner)}</div>
+  </article>`;
+}
+function tkRow(t) {
+  const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t);
+  return `<div class="tk-row ${t.status === 'Done' ? 'is-done' : ''}" data-tk="${t.id}" tabindex="0">
+    <button class="tk-check ${t.status === 'Done' ? 'on' : ''}" data-tkdone="${t.id}" aria-label="${t.status === 'Done' ? 'Mark not done' : 'Mark done'}">${svg('check')}</button>
+    <span class="tk-rt"><b>${esc(t.title)}</b>${lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
+    <span class="tk-rs">${subs.length ? `<span class="tk-cnt">${svg('check')} ${done}/${subs.length}</span>` : ''}</span>
+    <span class="tk-rs">${t.status === 'In progress' ? '<span class="chip tone warn">In progress</span>' : ''}</span>
+    <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${avHTML(t.owner)}
+  </div>`;
+}
+/* the overview used on My dashboard and the Task Dashboard */
+function taskOverview(ts, { title = 'My tasks', link = true } = {}) {
+  const today = todayStr(); const wk = localDate(new Date(Date.now() - 7 * 864e5));
+  const open = ts.filter((t) => t.status === 'Open'); const prog = ts.filter((t) => t.status === 'In progress'); const live = [...open, ...prog];
+  const late = live.filter((t) => t.due_date && t.due_date < today); const dueT = live.filter((t) => t.due_date === today);
+  const doneWk = ts.filter((t) => t.status === 'Done' && String(t.done_at || '').slice(0, 10) >= wk);
+  const total = live.length + doneWk.length; const pct = total ? Math.round((doneWk.length / total) * 100) : 0;
+  const bar = (n, cls) => (n ? `<i class="${cls}" style="flex:${n}" title="${n}"></i>` : '');
+  const pri = ['Urgent', 'High', 'Normal', 'Low'].map((p) => [p, live.filter((t) => (t.priority || 'Normal') === p).length]);
+  const next = live.slice().sort((a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9'))).slice(0, 5);
+  return `<section class="glass panel tov"><div class="panel-head"><h2><span class="gtag amber">${svg('task')} Tasks</span> ${esc(title)}</h2>${link ? '<a class="sub" href="#tasks">Open Tasks →</a>' : ''}</div>
+    <div class="tov-grid">
+      <div class="tov-ring">${ring(pct, pct + '%', 'Done this week', '#2fb36a')}</div>
+      <div class="tov-k">
+        <button class="tov-n" data-go="tasks"><b>${nfmt(open.length)}</b><span>To do</span></button>
+        <button class="tov-n warn" data-go="tasks"><b>${nfmt(prog.length)}</b><span>In progress</span></button>
+        <button class="tov-n bad" data-go="tasks/overdue"><b>${nfmt(late.length)}</b><span>Overdue</span></button>
+        <button class="tov-n warn" data-go="tasks"><b>${nfmt(dueT.length)}</b><span>Due today</span></button>
+        <button class="tov-n good" data-go="tasks/done"><b>${nfmt(doneWk.length)}</b><span>Done in 7 days</span></button>
+      </div>
+      <div class="tov-side"><div class="tov-bar" aria-label="By status">${bar(open.length, 'b-info')}${bar(prog.length, 'b-warn')}${bar(doneWk.length, 'b-good')}</div>
+        <div class="tov-leg"><span><i class="b-info"></i>To do</span><span><i class="b-warn"></i>In progress</span><span><i class="b-good"></i>Done</span></div>
+        <div class="tov-pri">${pri.map(([p, n]) => `<span class="p-${p.toLowerCase()}">${svg('flag')} ${p} <b>${n}</b></span>`).join('')}</div></div>
+    </div>
+    ${next.length ? `<div class="tov-next"><span class="faint">Next up</span>${next.map((t) => `<button class="tov-it" data-tkopen="${t.id}"><span class="grow">${esc(t.title)}</span>${priFlag(t.priority)}${dueBadge(t)}${avHTML(t.owner)}</button>`).join('')}</div>` : '<p class="faint" style="margin:8px 0 0">Nothing open. Add a task with New task.</p>'}
+  </section>`;
+}
+function bindTaskOverview(root, rer) {
+  root.querySelectorAll('.tov [data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
+  root.querySelectorAll('[data-tkopen]').forEach((b) => (b.onclick = () => taskDrawer(b.dataset.tkopen, rer)));
+}
+
+/* ---------- one task, opened: status, assignee, dates, sub-tasks with owners, notes and updates ---------- */
+function taskDrawer(id, after) {
+  const people = () => (DB.t.profiles || []).filter((p) => p.active).sort((a, b) => Number(b.id === DB.me.id) - Number(a.id === DB.me.id) || a.full_name.localeCompare(b.full_name));
+  const pOpts = (sel, blank) => opts(people().map((p) => [p.id, p.id === DB.me.id ? 'Me' : p.full_name]), sel, blank);
+  const done = () => { after?.(); };
+  return openDrawer((ctx) => {
+    const t = DB.get('work_tasks', id); if (!t) return ctx.close();
+    const subs = taskSubs(t.id); const pct = taskPct(t); const lk = taskLink(t);
+    const canDel = t.created_by === DB.me.id || canReassign();
+    ctx.el.innerHTML = `<div class="tkd">
+      <div class="drawer-head row between"><span class="faint">${lk ? `<a href="#" ${lk.l ? `data-lead="${lk.l.id}"` : ''}>${esc(lk.kind)} · ${esc(lk.name)}</a>` : 'Task'}</span><button class="btn ghost small" id="tkx" aria-label="Close">${svg('x')}</button></div>
+      <div class="seg tkd-st">${[...TSTAT, ['Cancelled', 'Cancelled', 'mute']].map(([k, w]) => `<button data-st="${k}" aria-pressed="${t.status === k}">${w}</button>`).join('')}</div>
+      <textarea id="tkt" class="tkd-title" rows="1" aria-label="Task name">${esc(t.title)}</textarea>
+      <div class="tkd-f">
+        <label>Assignee</label><select id="tko">${pOpts(t.owner)}</select>
+        <label>Due date</label><input type="date" id="tkdd" value="${esc(t.due_date || '')}">
+        <label>Priority</label><select id="tkp">${opts(TASK_PRI, t.priority || 'Normal')}</select>
+        <label>Given by</label><span class="tkd-v">${avHTML(t.created_by)} ${esc(DB.pname(t.created_by))} · ${fmtDT(t.created_at)}</span>
+      </div>
+      <label class="tkd-l">Description</label><textarea id="tkn" class="tkd-desc" placeholder="Add details, links, what done looks like">${esc(t.notes || '')}</textarea>
+      <div class="tkd-sh"><h3>Sub-tasks <span class="faint">${subs.filter((x) => x.done).length}/${subs.length}</span></h3><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span></div>
+      <ul class="tkd-subs">${subs.map((x) => `<li class="${x.done ? 'done' : ''}">
+          <button class="tk-check ${x.done ? 'on' : ''}" data-sd="${x.id}" aria-label="${x.done ? 'Mark not done' : 'Mark done'}">${svg('check')}</button>
+          <div class="grow"><input class="tkd-sti" data-stt="${x.id}" value="${esc(x.title)}" aria-label="Sub-task">
+            <input class="tkd-wd" data-swd2="${x.id}" value="${esc(x.work_done)}" placeholder="Work done (optional)" aria-label="Work done">
+            ${x.done ? `<span class="s faint">Done by ${esc(DB.pname(x.done_by))} · ${fmtDT(x.done_at)}</span>` : ''}</div>
+          <select class="tkd-so" data-so="${x.id}" aria-label="Sub-task owner">${pOpts(x.owner || '', 'Unassigned')}</select>
+          <input type="date" class="tkd-sdd" data-sdd="${x.id}" value="${esc(x.due_date || '')}" aria-label="Sub-task due date">
+          <button class="btn ghost small" data-sdel="${x.id}" aria-label="Delete sub-task">${svg('x')}</button></li>`).join('')}
+        <li class="tkd-add"><span class="tk-check add">${svg('plus')}</span><input id="sadd" class="grow" placeholder="Add a sub-task and press Enter"><select id="saddo" aria-label="Owner">${pOpts('', 'Unassigned')}</select></li></ul>
+      <h3 class="tkd-h">Updates</h3>
+      <div class="row tkd-cm"><input id="tku" class="grow" placeholder="Write an update or comment"><button class="btn small primary" id="tkugo">Post</button></div>
+      <ul class="feed">${(t.updates || []).slice().reverse().map((u) => `<li><span class="av sm" style="background:${personColor(u.by)}">${esc(initials(DB.pname(u.by)))}</span><div><b>${esc(DB.pname(u.by))}</b> ${esc(u.text)}<span class="s">${fmtDT(u.at)}</span></div></li>`).join('') || '<li class="faint">No updates yet.</li>'}</ul>
+      ${canDel ? '<div class="tkd-foot"><button class="btn danger small" id="tkdel">Delete task</button></div>' : ''}
+    </div>`;
+    const el = ctx.el; const re = () => { ctx.render(); done(); };
+    const save = (patch, msg) => guard(async () => { await DB.update('work_tasks', t.id, patch); re(); }, msg);
+    el.querySelector('#tkx').onclick = () => ctx.close();
+    el.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => save({ status: b.dataset.st })));
+    const ti = el.querySelector('#tkt'); const fit = () => { ti.style.height = 'auto'; ti.style.height = ti.scrollHeight + 'px'; }; fit(); ti.oninput = fit;
+    ti.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ti.blur(); } };
+    ti.onblur = () => { const v0 = ti.value.trim(); if (v0 && v0 !== t.title) save({ title: v0 }, 'Saved'); };
+    el.querySelector('#tko').onchange = (e) => save({ owner: e.target.value }, 'Assigned to ' + DB.pname(e.target.value));
+    el.querySelector('#tkdd').onchange = (e) => save({ due_date: e.target.value || null });
+    el.querySelector('#tkp').onchange = (e) => save({ priority: e.target.value });
+    el.querySelector('#tkn').onblur = (e) => { if (e.target.value !== (t.notes || '')) save({ notes: e.target.value }, 'Saved'); };
+    el.querySelectorAll('[data-sd]').forEach((b) => (b.onclick = () => guard(async () => { const x = DB.get('work_subtasks', b.dataset.sd); await DB.update('work_subtasks', x.id, { done: !x.done }); DB.t.work_tasks = await DB.fetchAll('work_tasks'); re(); })));
+    el.querySelectorAll('[data-stt]').forEach((i) => (i.onblur = () => { const x = DB.get('work_subtasks', i.dataset.stt); if (x && i.value.trim() && i.value.trim() !== x.title) guard(async () => { await DB.update('work_subtasks', x.id, { title: i.value.trim() }); }, 'Saved'); }));
+    el.querySelectorAll('[data-swd2]').forEach((i) => (i.onblur = () => { const x = DB.get('work_subtasks', i.dataset.swd2); if (x && i.value.trim() !== x.work_done) guard(async () => { await DB.update('work_subtasks', x.id, { work_done: i.value.trim() }); }, 'Saved'); }));
+    el.querySelectorAll('[data-so]').forEach((s0) => (s0.onchange = () => guard(async () => { await DB.update('work_subtasks', s0.dataset.so, { owner: s0.value || null }); re(); }, s0.value ? 'Assigned to ' + DB.pname(s0.value) : 'Saved')));
+    el.querySelectorAll('[data-sdd]').forEach((d) => (d.onchange = () => guard(async () => { await DB.update('work_subtasks', d.dataset.sdd, { due_date: d.value || null }); re(); })));
+    el.querySelectorAll('[data-sdel]').forEach((b) => (b.onclick = () => guard(async () => { await DB.remove('work_subtasks', b.dataset.sdel); DB.t.work_tasks = await DB.fetchAll('work_tasks'); re(); })));
+    const sa = el.querySelector('#sadd');
+    sa.onkeydown = (e) => { if (e.key !== 'Enter' || !sa.value.trim()) return; const title = sa.value.trim(); const ow = v(el, 'saddo') || null;
+      guard(async () => { await DB.insert('work_subtasks', { task_id: t.id, title, owner: ow, ord: subs.length + 1 }); DB.t.work_tasks = await DB.fetchAll('work_tasks'); re(); setTimeout(() => ctx.el.querySelector('#sadd')?.focus(), 30); }); };
+    const post = () => { const text = v(el, 'tku').trim(); if (!text) return; save({ updates: [...(t.updates || []), { at: nowISO(), by: DB.me.id, text }] }, 'Posted'); };
+    el.querySelector('#tkugo').onclick = post; el.querySelector('#tku').onkeydown = (e) => { if (e.key === 'Enter') post(); };
+    el.querySelector('#tkdel')?.addEventListener('click', () => guard(async () => { if (!(await confirmBox('Delete this task and its sub-tasks?', 'Delete'))) return; await DB.remove('work_tasks', t.id); ctx.close(); done(); }, 'Deleted'));
+    bindLeadClicks(el);
+  }, 'tkdrawer');
+}
+
 VIEWS.tasks = {
-  title: 'Tasks', sub: 'Every task on your leads and deals, with its sub-tasks, progress and the work done.',
+  title: 'Tasks', sub: 'Plan, assign and track work: a board by status, a list by due date, sub-tasks with owners, and live updates.',
   actions: () => `<button class="btn primary" id="newtask">${svg('plus')} New task</button>`,
   render(el) {
-    if (ST.arg) { if (['open', 'week', 'overdue', 'done', 'all'].includes(ST.arg)) TF.state = ST.arg; ST.arg = null; }
-    const base = scopedTasks().filter((t) => (!TF.mine || t.owner === DB.me.id) && (!TF.byme || (t.created_by === DB.me.id && t.owner !== DB.me.id)));
-    const wkEnd = localDate(new Date(Date.now() + 7 * 864e5));
-    const F = { open: taskOpen, week: (t) => taskOpen(t) && t.due_date && t.due_date <= wkEnd, overdue: (t) => taskTone(t) === 'bad', done: (t) => t.status === 'Done', all: () => true };
-    const rows = base.filter(F[TF.state]).filter((t) => !TF.q || `${t.title} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((s) => s.title + ' ' + s.work_done).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()))
-      .sort((a, b) => ({ bad: 0, warn: 1, info: 2, good: 3, mute: 4 })[taskTone(a)] - ({ bad: 0, warn: 1, info: 2, good: 3, mute: 4 })[taskTone(b)] || String(a.due_date || '9').localeCompare(String(b.due_date || '9')));
-    el.innerHTML = `${filterBar({ period: false })}<section class="glass panel">
-      <div class="filters" style="margin-bottom:10px"><div class="seg">${[['open', 'Open'], ['week', 'Due in 7 days'], ['overdue', 'Overdue'], ['done', 'Done'], ['all', 'All']].map(([k, t]) => `<button data-tf="${k}" aria-pressed="${TF.state === k}">${t} <span class="faint">${base.filter(F[k]).length}</span></button>`).join('')}</div>
-        <input type="search" id="tq" placeholder="Search tasks, sub-tasks, work done" value="${esc(TF.q)}"><label class="check"><input type="checkbox" id="tmine" ${TF.mine ? 'checked' : ''}> Only mine</label><label class="check"><input type="checkbox" id="tbyme" ${TF.byme ? 'checked' : ''}> I gave to others</label></div>
-      ${rows.length ? `<div class="tlist">${rows.slice(0, 150).map((t) => taskCard(t, { open: taskOpenState.has(t.id) || rows.length <= 8 })).join('')}</div>` : empty('No tasks here', 'Add tasks from a lead or deal (Tasks tab), or with New task.')}</section>`;
+    let openId = null;
+    if (ST.arg) { if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } ST.arg = null; }
+    const today = todayStr(); const wkEnd = localDate(new Date(Date.now() + 7 * 864e5)); const doneSince = localDate(new Date(Date.now() - 30 * 864e5));
+    const base = tasksFor(TF.scope).filter((t) => t.status !== 'Cancelled')
+      .filter((t) => !TF.pri || (t.priority || 'Normal') === TF.pri)
+      .filter((t) => !TF.q || `${t.title} ${t.notes || ''} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()));
+    const byDue = (a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')) || ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[a.priority || 'Normal'] - ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[b.priority || 'Normal'];
+    const doneOk = (t) => TF.showDone || String(t.done_at || t.updated_at || '').slice(0, 10) >= doneSince;
+    const cnt = { mine: tasksFor('mine'), given: tasksFor('given'), team: tasksFor('team') };
+    const live = base.filter(taskOpen);
+    const board = () => `<div class="tk-board">${TSTAT.map(([k, w, tone]) => { const col = base.filter((t) => t.status === k && (k !== 'Done' || doneOk(t))).sort(k === 'Done' ? (a, b) => String(b.done_at || '').localeCompare(String(a.done_at || '')) : byDue);
+      return `<section class="tk-col" data-col="${k}"><div class="tk-colh"><span class="dot ${tone}"></span><b>${w}</b><span class="faint">${col.length}</span><span class="grow"></span>${k !== 'Done' ? `<button class="btn ghost small" data-qadd="${k}" aria-label="Add to ${w}">${svg('plus')}</button>` : `<button class="lnk small" id="tshowdone">${TF.showDone ? 'Last 30 days only' : 'Show all'}</button>`}</div>
+        <div class="tk-qa" data-qa="${k}" hidden><input placeholder="Task name, then Enter" data-qain="${k}"></div>
+        <div class="tk-cards" data-drop="${k}">${col.map(tkCard).join('') || '<p class="tk-empty">Drop a task here</p>'}</div></section>`; }).join('')}</div>`;
+    const groups = [['Overdue', (t) => taskOpen(t) && t.due_date && t.due_date < today, 'bad'], ['Today', (t) => taskOpen(t) && t.due_date === today, 'warn'], ['Next 7 days', (t) => taskOpen(t) && t.due_date > today && t.due_date <= wkEnd, 'info'], ['Later', (t) => taskOpen(t) && t.due_date > wkEnd, 'info'], ['No date', (t) => taskOpen(t) && !t.due_date, 'mute'], ['Done', (t) => t.status === 'Done' && doneOk(t), 'good']];
+    const list = () => groups.map(([g, f, tone]) => { const xs = base.filter(f).sort(g === 'Done' ? (a, b) => String(b.done_at || '').localeCompare(String(a.done_at || '')) : byDue); return xs.length ? `<section class="tk-grp tone-${tone}"><h3><span class="dot ${tone}"></span>${g} <span class="faint">${xs.length}</span></h3>${xs.map(tkRow).join('')}</section>` : ''; }).join('') || empty('No tasks here', 'Add one with New task, or change the filters.');
+    el.innerHTML = `${filterBar({ period: false })}
+      ${taskOverview(base, { title: TF.scope === 'mine' ? 'My tasks' : TF.scope === 'given' ? 'Tasks I gave to others' : 'Team tasks', link: false })}
+      <section class="glass panel tk-wrap">
+        <div class="tk-bar">
+          <div class="seg">${[['mine', 'My tasks'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
+          <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
+          <input type="search" id="tq" placeholder="Search tasks" value="${esc(TF.q)}">
+          <select id="tpri" aria-label="Priority"><option value="">Any priority</option>${opts(TASK_PRI, TF.pri)}</select>
+          <span class="faint tk-sum">${live.length} open · ${live.filter((t) => t.due_date && t.due_date < today).length} overdue</span>
+        </div>
+        ${TF.view === 'board' ? board() : `<div class="tk-list">${list()}</div>`}
+      </section>`;
     const rer = () => this.render(el);
-    el.querySelectorAll('[data-tf]').forEach((b) => (b.onclick = () => { TF.state = b.dataset.tf; rer(); }));
-    el.querySelector('#tmine').onchange = (e) => { TF.mine = e.target.checked; rer(); };
-    el.querySelector('#tbyme').onchange = (e) => { TF.byme = e.target.checked; rer(); };
+    el.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { TF.scope = b.dataset.sc; rer(); }));
+    el.querySelectorAll('[data-vw]').forEach((b) => (b.onclick = () => { TF.view = b.dataset.vw; rer(); }));
+    el.querySelector('#tpri').onchange = (e) => { TF.pri = e.target.value; rer(); };
+    el.querySelector('#tshowdone')?.addEventListener('click', () => { TF.showDone = !TF.showDone; rer(); });
     el.querySelector('#tq').oninput = (e) => { TF.q = e.target.value; clearTimeout(this._t); this._t = setTimeout(() => { rer(); const i = el.querySelector('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
-    bindFilters(el, rer); bindTaskCards(el, rer);
+    el.querySelectorAll('[data-tk]').forEach((c) => { c.onclick = (e) => { if (e.target.closest('[data-tkdone]')) return; taskDrawer(c.dataset.tk, rer); }; c.onkeydown = (e) => { if (e.key === 'Enter') taskDrawer(c.dataset.tk, rer); }; });
+    el.querySelectorAll('[data-tkdone]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); const t = DB.get('work_tasks', b.dataset.tkdone); guard(async () => { await DB.update('work_tasks', t.id, { status: t.status === 'Done' ? 'Open' : 'Done' }); rer(); }, t.status === 'Done' ? 'Reopened' : 'Done'); }));
+    el.querySelectorAll('[data-qadd]').forEach((b) => (b.onclick = () => { const q = el.querySelector(`[data-qa="${b.dataset.qadd}"]`); q.hidden = !q.hidden; if (!q.hidden) q.querySelector('input').focus(); }));
+    el.querySelectorAll('[data-qain]').forEach((i) => (i.onkeydown = (e) => { if (e.key === 'Escape') { i.parentElement.hidden = true; return; } if (e.key !== 'Enter' || !i.value.trim()) return;
+      guard(async () => { await DB.insert('work_tasks', { title: i.value.trim(), owner: DB.me.id, created_by: DB.me.id, status: i.dataset.qain, priority: 'Normal' }); rer(); }, 'Task added'); }));
+    /* drag a card to another column to change its status */
+    el.querySelectorAll('.tk-card').forEach((c) => { c.ondragstart = (e) => { e.dataTransfer.setData('text/plain', c.dataset.tk); e.dataTransfer.effectAllowed = 'move'; c.classList.add('drag'); }; c.ondragend = () => c.classList.remove('drag'); });
+    el.querySelectorAll('[data-drop]').forEach((z) => {
+      z.ondragover = (e) => { e.preventDefault(); z.classList.add('over'); }; z.ondragleave = () => z.classList.remove('over');
+      z.ondrop = (e) => { e.preventDefault(); z.classList.remove('over'); const id = e.dataTransfer.getData('text/plain'); const t = DB.get('work_tasks', id); if (!t || t.status === z.dataset.drop) return; guard(async () => { await DB.update('work_tasks', id, { status: z.dataset.drop }); rer(); }, 'Moved to ' + TSTAT.find((x) => x[0] === z.dataset.drop)[1]); };
+    });
+    bindFilters(el, rer); bindTaskOverview(el, rer);
+    if (openId) taskDrawer(openId, rer);
   },
   mount() { $('#newtask')?.addEventListener('click', () => taskModal({}, () => render())); },
 };
 
+/* ---------- live alerts: a sound and a pop-up when a task or sub-task lands on my name ---------- */
+const SOUND = { ctx: null, on() { try { return localStorage.getItem('garuda-sound') !== '0'; } catch (_) { return true; } } };
+['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => { try { SOUND.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); if (SOUND.ctx.state === 'suspended') SOUND.ctx.resume(); } catch (_) { /* no audio */ } }, { passive: true }));
+/* a short two-note chime; 'task' rises, 'chat' is a soft single note, 'alert' repeats */
+function chime(kind = 'task') {
+  if (!SOUND.on() || !SOUND.ctx) return;
+  try {
+    const c = SOUND.ctx; const t0 = c.currentTime + 0.01;
+    const notes = kind === 'chat' ? [[880, 0, 0.18]] : kind === 'alert' ? [[784, 0, 0.16], [784, 0.22, 0.16], [1047, 0.44, 0.3]] : [[659, 0, 0.18], [988, 0.16, 0.34]];
+    notes.forEach(([f, at, dur]) => {
+      const o = c.createOscillator(); const g = c.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + at); g.gain.exponentialRampToValueAtTime(kind === 'chat' ? 0.12 : 0.22, t0 + at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+      o.connect(g).connect(c.destination); o.start(t0 + at); o.stop(t0 + at + dur + 0.05);
+    });
+  } catch (_) { /* ignore */ }
+}
+function liveNotice(title, sub, open) {
+  let box = $('#alerts'); if (!box) { box = document.createElement('div'); box.id = 'alerts'; box.setAttribute('aria-live', 'polite'); document.body.appendChild(box); }
+  const n = document.createElement('div'); n.className = 'atoast glass tone-info';
+  n.innerHTML = `<span class="ai info">${svg('task')}</span><div class="grow"><b>${esc(title)}</b>${sub ? `<span class="s">${esc(sub)}</span>` : ''}<span class="row"><button class="btn small primary" data-x="open">Open</button></span></div><button class="btn ghost small" data-x="close" aria-label="Close">${svg('x')}</button>`;
+  n.querySelector('[data-x="open"]').onclick = () => { n.remove(); open(); };
+  n.querySelector('[data-x="close"]').onclick = () => n.remove();
+  box.appendChild(n); setTimeout(() => n.remove(), 20000);
+  try { if ('Notification' in window && window.Notification.permission === 'granted' && document.hidden) { const w = new window.Notification('Garuda CRM · ' + title, { body: sub || '', tag: 'tk-' + Date.now() }); w.onclick = () => { window.focus(); open(); }; } } catch (_) { /* ignore */ }
+}
+/* called by the live feed (core.js) for every change; prev is the row as it was on this screen */
+function onLiveChange(t, type, row, prev) {
+  if (!DB.me || !row || type === 'DELETE') return;
+  /* wait a moment: if this screen made the change itself, its own save marks the row first */
+  setTimeout(() => liveCheck(t, type, row, prev), 1200);
+}
+function liveCheck(t, type, row, prev) {
+  if (DB.recentLocal(row.id)) return;
+  const me = DB.me.id;
+  if (t === 'work_tasks' && row.owner === me && (type === 'INSERT' || (prev && prev.owner !== me)) && row.created_by !== me) {
+    chime('task'); liveNotice(`New task from ${DB.pname(row.created_by)}`, row.title + (row.due_date ? ' · due ' + fmtDate(row.due_date) : ''), () => go('tasks', row.id));
+  } else if (t === 'work_subtasks' && row.owner === me && (type === 'INSERT' || (prev && prev.owner !== me))) {
+    const parent = DB.get('work_tasks', row.task_id);
+    chime('task'); liveNotice('New sub-task for you', row.title + (parent ? ' · in ' + parent.title : ''), () => go('tasks', row.task_id));
+  } else if (t === 'chat_messages' && type === 'INSERT' && row.sender !== me) {
+    const r = row.room || ''; const mine = r.startsWith('dm:') ? r.includes(me) : r === 'general' || (r.startsWith('dept:') && (DB.me.departments || []).includes(r.slice(5)));
+    if (mine && ST.view !== 'chat') chime('chat');
+  }
+}
 /* ---------- Task Dashboard ---------- */
 VIEWS.taskdash = {
   title: 'Task Dashboard', sub: 'Add a task for yourself or give it to anyone. See what is open, late and done, by person, with the latest work done.',
@@ -156,6 +364,7 @@ VIEWS.taskdash = {
     const mineOpen = DB.t.work_tasks.filter((t) => t.owner === DB.me.id && taskOpen(t)).sort((a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')));
     const gave = DB.t.work_tasks.filter((t) => t.created_by === DB.me.id && t.owner !== DB.me.id && taskOpen(t)).sort((a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')));
     el.innerHTML = `${filterBar()}
+      ${taskOverview(ts, { title: 'Everyone in my view' })}
       <section class="glass panel qadd"><div class="row"><span class="gtag blue">${svg('plus')} Quick task</span><input id="qtt" placeholder="What needs doing? e.g. Prepare MoU draft for SRM by Friday" aria-label="Task">
         <select id="qto" aria-label="Assign to">${opts((DB.t.profiles || []).filter((p) => p.active).sort((a, b) => Number(b.id === DB.me.id) - Number(a.id === DB.me.id) || a.full_name.localeCompare(b.full_name)).map((p) => [p.id, p.id === DB.me.id ? 'Myself' : p.full_name]), DB.me.id)}</select>
         <input type="date" id="qtd" aria-label="Due date" value="${localDate(new Date(Date.now() + 864e5))}"><button class="btn primary" id="qgo">Add</button><button class="btn" id="qmore">More details</button></div></section>
@@ -179,7 +388,7 @@ VIEWS.taskdash = {
         <section class="glass panel"><div class="panel-head"><h2><span class="gtag amber">Next 7 days</span> Due soon</h2></div>${soon.length ? `<div class="tlist">${soon.slice(0, 8).map((t) => taskCard(t, { open: false })).join('')}</div>` : '<p class="faint">Nothing due in the next 7 days.</p>'}</section>
         <section class="glass panel"><div class="panel-head"><h2><span class="gtag red">Late</span> Overdue</h2></div>${late.length ? `<div class="tlist">${late.slice(0, 8).map((t) => taskCard(t, { open: false })).join('')}</div>` : '<p class="faint">Nothing overdue.</p>'}</section>
       </div>`;
-    bindFilters(el, () => this.render(el)); bindTaskCards(el, () => this.render(el));
+    bindFilters(el, () => this.render(el)); bindTaskCards(el, () => this.render(el)); bindTaskOverview(el, () => this.render(el));
     el.querySelector('#qmore').onclick = () => taskModal({ title: v(el, 'qtt'), owner: v(el, 'qto'), due_date: v(el, 'qtd') }, () => this.render(el));
     const add = () => guard(async () => {
       const title = v(el, 'qtt').trim(); if (!title) throw new Error('Write the task first.');

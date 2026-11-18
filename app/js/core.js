@@ -221,8 +221,10 @@ const DB = {
       ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (p) => {
         const arr = this.t[t] || (this.t[t] = []);
         const keys = ORDER_KEYS[t] || ['id']; const same = (a, b) => keys.every((k) => a?.[k] === b?.[k]);
+        let prev = null;
         if (p.eventType === 'DELETE') { const i = arr.findIndex((x) => same(x, p.old)); if (i >= 0) arr.splice(i, 1); }
-        else { const i = arr.findIndex((x) => same(x, p.new)); if (i >= 0) arr[i] = p.new; else arr.push(p.new); }
+        else { const i = arr.findIndex((x) => same(x, p.new)); if (i >= 0) { prev = arr[i]; arr[i] = p.new; } else arr.push(p.new); }
+        try { if (typeof onLiveChange === 'function') onLiveChange(t, p.eventType, p.new, prev); } catch (e) { console.warn(e); }
         if (t === 'profiles' && this.me && p.new?.id === this.me.id) this.me = p.new;
         clearTimeout(this.rtTimer); this.rtTimer = setTimeout(() => this.emit(), 400);
       });
@@ -253,9 +255,14 @@ const DB = {
   profile(id) { return this.get('profiles', id); },
   pname(id) { const p = this.profile(id); return p ? p.full_name || p.email : id ? 'Unknown' : 'Unassigned'; },
 
+  /* rows this screen just wrote: their live echo must not ping me */
+  local: new Map(),
+  markLocal(id) { if (id) this.local.set(id, Date.now()); },
+  recentLocal(id) { const at = this.local.get(id); return !!at && Date.now() - at < 15000; },
   async insert(t, row) {
     const { data, error } = await this.sb.from(t).insert(row).select().single();
     if (error) throw new Error(friendly(error));
+    this.markLocal(data?.id);
     (this.t[t] ||= []).push(data);
     if (['remarks', 'price_disclosures', 'payments'].includes(t)) await this.refreshLead(data.lead_id);
     if (t === 'payments' || t === 'leads') await this.refreshMoney();
@@ -264,6 +271,7 @@ const DB = {
     return data;
   },
   async update(t, id, patch) {
+    this.markLocal(id);
     const { data, error } = await this.sb.from(t).update(patch).eq('id', id).select().single();
     if (error) throw new Error(friendly(error));
     const arr = this.t[t]; const i = arr.findIndex((x) => x.id === id); if (i >= 0) arr[i] = data;
@@ -286,6 +294,7 @@ const DB = {
     if (!rows.length) return [];
     const { data, error } = await this.sb.from(t).insert(rows).select();
     if (error) throw new Error(friendly(error));
+    data.forEach((r) => this.markLocal(r.id));
     (this.t[t] ||= []).push(...data);
     this.emit();
     return data;
