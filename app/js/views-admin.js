@@ -321,24 +321,25 @@ function planImport(wb, X) {
   pl.forEach((r) => { const f = PROC[xT(r['Service'])] || 'CoE'; const st = f === 'RPTO' ? 'Pipeline' : xT(r['Status']) || 'In Progress';
     P.leads.push({ funnel: f, ref_id: xT(r['Opp ID']), stage: st, is_deal: true, name: xT(r['Organisation']), org: xT(r['Organisation']), contact_name: xT(r['Contact Person']), phone: xT(r['Phone']), email: xT(r['Email']), client_type: xT(r['Client Type']),
       source: xT(r['Source']), owner_label: xT(r['Lead Owner']), sub_category: xT(r['Sub-Category']), course: f === 'RPTO' ? 'Small Class RPC' : '', also_interested: xT(r['Also Interested In']), value: xN(r['Approx Value (₹)']) || 0, expected_close: xD(r['Expected Closure']),
-      meeting_date: xD(r['Our Meeting Date']), latest_update: xT(r['Latest Update']), history: xT(r['All Remarks (date-wise)']), collected_import: xN(r['Collected (₹)']) || 0, pending_po: xN(r['Pending PO (₹)']) || 0, won_at: /won/i.test(st) ? xD(r['Expected Closure']) : null, lost_reason: /lost/i.test(st) ? 'From the sales sheet' : '' });
+      meeting_date: xD(r['Our Meeting Date']), latest_update: xT(r['Latest Update']), history: xT(r['All Remarks (date-wise)']), collected_import: xN(r['Collected (₹)']) || 0, pending_po: xN(r['Balance Due (₹)'] ?? r['Pending PO (₹)']) || 0, won_at: /won/i.test(st) ? xD(r['Expected Closure']) : null, lost_reason: /lost/i.test(st) ? 'From the sales sheet' : '' });
   });
   P.counts.pipeline = pl.length;
   /* converted clients: a won deal and a project each */
   const cc = sheetRows(wb, X, 'CoE Converted Clients', 'CC ID').filter((r) => /^CC/.test(xT(r['CC ID'])));
   cc.forEach((r) => { const prod = xT(r['Product']); const f = /establishment/i.test(prod) ? 'EST' : 'CoE'; const id = xT(r['CC ID']);
-    P.leads.push({ funnel: f, ref_id: id, stage: 'Closed Won', is_deal: true, name: xT(r['Institution']), org: xT(r['Institution']), sub_category: prod, value: xN(r['Order Value (₹)']) || 0, won_at: xD(r['Date of Order']),
-      collected_import: xN(r['Received (₹)']) || 0, pending_po: xN(r['Pending (₹)']) || 0, latest_update: xT(r['Current Status']), history: xT(r['Remarks']) });
-    P.projects.push({ import_key: id, project_code: xT(r['Project ID']), lead_ref: id, name: xT(r['Institution']), dept: f, status: /completed/i.test(xT(r['Current Status'])) ? 'Completed' : 'In progress',
+    const awaiting = /awaiting po|^pipeline/i.test(xT(r['Current Status'])); /* the sheet keeps a deal still waiting for its PO in the pipeline, not as a sale */
+    P.leads.push({ funnel: f, ref_id: id, stage: awaiting ? 'In Progress' : 'Closed Won', is_deal: true, name: xT(r['Institution']), org: xT(r['Institution']), sub_category: prod, value: xN(r['Order Value (₹)']) || 0, won_at: awaiting ? null : xD(r['Date of Order']),
+      collected_import: xN(r['Received (₹)']) || 0, pending_po: xN(r['Pending (₹)'] ?? r['Balance Due (₹)'] ?? r['Not yet received (₹)']) || 0, latest_update: xT(r['Current Status']), history: xT(r['Remarks']) });
+    if (!awaiting) P.projects.push({ import_key: id, project_code: xT(r['Project ID']), lead_ref: id, name: xT(r['Institution']), dept: f, status: /completed/i.test(xT(r['Current Status'])) ? 'Completed' : 'In progress',
       order_value: xN(r['Order Value (₹)']) || 0, received: xN(r['Received (₹)']) || 0, delivered: xT(r['Product Delivered']), order_date: xD(r['Date of Order']), notes: [xT(r['Current Status']), xT(r['Remarks'])].filter(Boolean).join(' · ') });
   });
-  P.counts.projects = cc.length;
+  P.counts.projects = P.projects.length;
   /* revenue ledger */
   const seen = {};
-  sheetRows(wb, X, 'Revenue Ledger', 'Month').filter((r) => xN(r['Amount (₹)'])).forEach((r) => {
-    const dept0 = PROC[xT(r['Department'])] || 'OTH'; const status = /pending/i.test(xT(r['Payment Status'])) ? 'Pending PO' : 'Collected'; const month = (xD(r['Month']) || '').slice(0, 7) + '-01';
+  sheetRows(wb, X, 'Revenue Ledger', 'Month').filter((r) => xN(r['Amount (₹)']) && !/awaiting/i.test(xT(r['Payment Status']))).forEach((r) => {
+    const dept0 = PROC[xT(r['Department'])] || 'OTH'; const ps = xT(r['Payment Status']); const status = /^(collected|received|paid)/i.test(ps) ? 'Collected' : 'Pending PO'; const month = (xD(r['Month']) || '').slice(0, 7) + '-01';
     const k = [month, dept0, xT(r['Segment']), xT(r['Client']), xN(r['Amount (₹)']), status].join('|'); seen[k] = (seen[k] || 0) + 1;
-    P.revenue.push({ import_key: 'rev|' + k + '|' + seen[k], month, dept: dept0, channel: xT(r['Channel']), segment: xT(r['Segment']), client: xT(r['Client']), amount: xN(r['Amount (₹)']), status, opp_ref: xT(r['Linked ID']), note: [xT(r['Basis / note']), xT(r['Original label (Revenue tab)'])].filter(Boolean).join(' · ') });
+    P.revenue.push({ import_key: 'rev|' + k + '|' + seen[k], month, dept: dept0, channel: xT(r['Channel']), segment: xT(r['Segment']), client: xT(r['Client']), amount: xN(r['Amount (₹)']), status, opp_ref: xT(r['Linked ID']), note: [status === 'Pending PO' ? ps : '', xT(r['Basis / note']), xT(r['Original label (Revenue tab)'])].filter(Boolean).join(' · ') });
   });
   P.counts.revenue = P.revenue.length; P.counts.pending = P.revenue.filter((x) => x.status === 'Pending PO').length;
   /* admissions log: three tables side by side */
@@ -361,7 +362,7 @@ function planImport(wb, X) {
 }
 function showPlan(out, P, rer) {
   const c = P.counts;
-  out.innerHTML = `<div class="kpis">${[['RPTO Academy leads', c.academy], ['CoE leads', c.coe], ['Pipeline deals', c.pipeline], ['Won projects', c.projects], ['Revenue lines', c.revenue], ['… of them Pending PO', c.pending], ['Admissions rows', c.admissions], ['Handed-over leads', c.inherited]].map(([t, n]) => `<div class="glass kpi"><span class="l">${t}</span><span class="v">${nfmt(n || 0)}</span></div>`).join('')}</div>
+  out.innerHTML = `<div class="kpis">${[['RPTO Academy leads', c.academy], ['CoE leads', c.coe], ['Pipeline deals', c.pipeline], ['Won projects', c.projects], ['Revenue lines', c.revenue], ['… of them balance due', c.pending], ['Admissions rows', c.admissions], ['Handed-over leads', c.inherited]].map(([t, n]) => `<div class="glass kpi"><span class="l">${t}</span><span class="v">${nfmt(n || 0)}</span></div>`).join('')}</div>
     ${P.warn.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}
     <div class="row" style="margin-top:10px"><button class="btn primary" id="xlgo" ${P.warn.some((w) => w.startsWith('Statuses')) ? 'disabled' : ''}>${svg('upload')} Import ${nfmt(P.leads.length)} leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines</button></div><div id="xlbar"></div>`;
   out.querySelector('#xlgo').onclick = () => { if (!IMP.running) runImport(P); };
