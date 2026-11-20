@@ -28,7 +28,8 @@ const M = {
   f() { return { dept: ST.dept, person: ST.person, r: curRange() }; },
   deptOk: (code) => ST.dept === 'All' || code === ST.dept,
   personOk: (pid) => ST.person === 'all' || pid === ST.person,
-  leads() { return visibleLeads().filter((l) => this.deptOk(l.funnel) && this.personOk(l.owner)); },
+  prodOk: (l) => !ST.prod || ST.dept === 'All' || L.line(l) === ST.prod,
+  leads() { return visibleLeads().filter((l) => this.deptOk(l.funnel) && this.personOk(l.owner) && this.prodOk(l)); },
 
   /* the people a dashboard lists: my tree (everyone for C-level / Admin), sales staff only */
   people() { const owns = new Set(visibleLeads().map((l) => l.owner)); return scopePeople().filter((p) => isSales(p) && inDept(p, ST.dept) && (p.role !== 'clevel' || owns.has(p.id)) && (ST.person === 'all' || p.id === ST.person)); },

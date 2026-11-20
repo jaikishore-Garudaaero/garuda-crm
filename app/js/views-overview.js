@@ -84,6 +84,23 @@ function actionStrip(c) {
     ${live.map(([t, n, to, tone, ic]) => `<button class="np tone-${tone}" data-go="${to}" title="Open the list"><span class="ai ${tone}">${svg(ic)}</span><span class="t">${t}</span><b>${nfmt(n)}</b></button>`).join('') || `<span class="np ok"><span class="ai good">${svg('check')}</span><span class="t">All clear: nothing overdue right now</span></span>`}
     ${live.length && live.length < all.length ? `<span class="faint np-more">${all.length - live.length} other checks clear</span>` : ''}</section>`;
 }
+/* open leads by campaign tier, each bar opens its list */
+function tierBars(open, put) {
+  const rows = TIERS.map((t) => [t, open.filter((l) => l.campaign_tier === t)]).concat([['Not tiered yet', open.filter((l) => !l.campaign_tier)]]).filter(([, a]) => a.length);
+  if (!rows.length) return '<p class="faint">No open leads have a tier yet.</p>';
+  const max = Math.max(...rows.map(([, a]) => a.length));
+  const hw = open.filter((l) => /^P[12]/.test(l.campaign_tier || ''));
+  return `<div class="tiers">${rows.map(([t, a], i) => `<div class="trow t-${t.slice(0, 1).toLowerCase()}"><span class="tl">${esc(t)}</span><span class="bar"><i style="width:${(a.length / max) * 100}%"></i></span><span class="num">${put('tier' + i, 'Open leads · ' + t, a)}</span></div>`).join('')}</div>
+    <p class="tiers-note">${svg('mail')} ${nfmt(hw.filter((l) => l.email).length)} of the ${nfmt(hw.length)} hot and warm leads have an email · ${nfmt(hw.filter((l) => l.phone).length)} have a phone for WhatsApp · <button class="lnk" data-go="leads/hotwarm">Open the list</button></p>`;
+}
+/* leads handed over from people who left: how many the new owner has worked */
+function handoverTable(all, put) {
+  const inh = all.filter((l) => l.inherited);
+  if (!inh.length) return '<p class="faint">No handed-over leads in this view.</p>';
+  const by = groupBy(inh, (l) => L.ownerLabel(l));
+  return tbl(['Now with', 'Handed over', 'Worked since', 'Not yet', 'Done'], Object.entries(by).sort((a, b) => b[1].length - a[1].length).map(([who, a], i) => { const w = a.filter((l) => l.touched_at); const n = a.filter((l) => !l.touched_at && L.open(l));
+    return `<tr><td>${esc(who)}</td><td class="n">${put('ih' + i, `${who} · handed over`, a)}</td><td class="n">${put('iw' + i, `${who} · handed over, worked since`, w)}</td><td class="n">${put('in' + i, `${who} · handed over, open, not worked yet`, n)}</td><td class="n">${pctTxt(w.length, a.length)}</td></tr>`; }));
+}
 /* a KPI card that opens its records */
 const kcard = (key, label, value, sub, tone = '') => `<button class="glass kpi kcard ${tone}" data-dk="${esc(key)}" type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}<span class="drill">See details →</span></button>`;
 const bindGo = (el) => el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
@@ -258,11 +275,17 @@ VIEWS.sales = {
         ${kcard('k2', 'New deals', nfmt(dealsNew.length), 'Converted in the period')}
         ${kcard('k3', 'Won', nfmt(won.length), 'Conversions in the period', won.length ? 'good' : '')}
         ${kcard('k4', 'Lost', nfmt(lost.length), 'Closed lost in the period', lost.length ? 'bad' : '')}
-        ${kcard('k5', 'Open pipeline', inr(sum(openDeals, (l) => l.value)), `${nfmt(openDeals.length)} open deals`)}
-        ${kcard('k6', 'Weighted pipeline', inr(weighted), 'Value × stage win %')}
+        ${kcard('k5', 'Open pipeline', inrShort(sum(openDeals, (l) => l.value)), `${nfmt(openDeals.length)} open deals`)}
+        ${kcard('k6', 'Weighted pipeline', inrShort(weighted), 'Value × stage win %')}
         ${[...admDepts].some((c) => M.deptOk(c)) ? kcard('k7', 'Admissions', nfmt(admN), `${nfmt(sum(adm, (a) => a.paid))} paid · ${nfmt(sum(adm, (a) => a.free))} free · ${[...admDepts].join(', ')}`) : ''}
       </div>
       ${actionStrip(commandCounts())}
+      <div class="grid g2">
+        <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Campaign tiers</span> Who to message next</h2><span class="sub">From the call remarks · P1 and P2 are the email and WhatsApp list</span></div>
+          ${tierBars(all.filter(L.open), put)}</section>
+        <section class="glass panel"><div class="panel-head"><h2><span class="gtag amber">Handed over</span> Leads from old staff</h2><span class="sub">Worked since = any call or remark logged in the CRM</span></div>
+          ${handoverTable(all, put)}</section>
+      </div>
       <section class="glass panel"><div class="panel-head"><h2>Inflow by month and source</h2><span class="sub">Leads by lead date</span></div>${series.length ? barChart({ labels: months.map(monShort), series, stacked: true, fmt: (x) => nfmt(Math.round(x)) }) : empty('No leads', 'Nothing came in for these months.')}</section>
       <div class="grid g2">${funnels}</div>
       <div class="grid g2">
@@ -276,7 +299,7 @@ VIEWS.sales = {
         <section class="glass panel"><div class="panel-head"><h2>Stuck deals</h2><span class="sub">In the same stage ${stuckDays}+ days</span></div>${tbl(['Stage', 'Open', 'Stuck', 'Avg days'], stuckRows.map((x, i) => `<tr><td>${deptChip(x.code)} ${esc(x.s.key)}</td><td class="n">${x.a.length}</td><td class="n">${put('st' + i, `Stuck in ${x.s.key}`, x.st)}</td><td class="n">${x.avg}</td></tr>`))}</section>
         <section class="glass panel"><div class="panel-head"><h2>Product interest</h2><span class="sub">Leads dated in ${r.label.toLowerCase()}</span></div>${interest.length ? `<div class="list">${interest.map(([k, a], i) => `<div class="item"><span class="grow">${esc(k)}</span>${put('pi' + i, 'Interested in ' + k, a)}</div>`).join('')}</div>` : '<p class="faint">No leads in this period.</p>'}</section>
       </div>`;
-    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindGo(el.querySelector('.needs-strip'));
+    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindGo(el.querySelector('.needs-strip')); el.querySelectorAll('.tiers-note [data-go]').forEach((b) => (b.onclick = () => go('leads', 'hotwarm')));
   },
 };
 

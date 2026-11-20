@@ -206,6 +206,56 @@ const PROJ_STATUS = ['Not started', 'In progress', 'On hold', 'Completed'];
 const PROJ_CLS = { 'Not started': '', 'In progress': 'acc', 'On hold': 'warn', Completed: 'good' };
 const ITEM_STATUS = { milestone: ['Open', 'In progress', 'Done', 'Cancelled'], task: ['Open', 'In progress', 'Done', 'Cancelled'], payment: ['Open', 'Invoiced', 'Collected', 'Cancelled'] };
 const PF = { status: 'active', mode: 'list', quick: '' };
+/* order value, money in (sheet opening + verified payments since), pending */
+function projMoney(p) {
+  const order = Number(p.order_value) || Number(p.value) || 0;
+  const since = p.created_at || '1900-01-01';
+  const pays = p.lead_id ? DB.t.payments.filter((y) => y.lead_id === p.lead_id && y.status === 'Verified' && (y.claimed_at || '') > since) : [];
+  const received = (Number(p.opening_received) || 0) + sum(pays, (y) => y.amount_ex);
+  const claimed = p.lead_id ? sum(DB.t.payments.filter((y) => y.lead_id === p.lead_id && y.status === 'Claimed'), (y) => y.amount_ex) : 0;
+  return { order, received, claimed, pending: Math.max(0, order - received) };
+}
+/* ================= Collections: money still to come in, by project, and the Pending PO lines ================= */
+VIEWS.collections = {
+  title: 'Collections', sub: 'Pending payments: order value, what came in and what is still due, by project. Record a payment and it moves to Revenue.',
+  render(el) {
+    const today = todayStr();
+    const ps = DB.t.projects.filter((p) => M.deptOk(p.dept || '') && (Number(p.order_value) || Number(p.value)));
+    const rows = ps.map((p) => ({ p, m: projMoney(p), l: p.lead_id ? DB.get('leads', p.lead_id) : null })).sort((a, b) => b.m.pending - a.m.pending);
+    const due = rows.filter((x) => x.m.pending > 0);
+    const po = DB.t.revenue_entries.filter((e) => e.status === 'Pending PO' && M.deptOk(e.department)).sort((a, b) => String(a.month).localeCompare(String(b.month)));
+    const age = (d) => (d ? Math.max(0, -daysAgo(today) + daysAgo(d)) : null);
+    const D = new Map();
+    el.innerHTML = `${filterBar({ person: false, period: false })}
+      <div class="kpis">
+        ${kpi({ label: 'Pending from projects', value: inr(sum(due, (x) => x.m.pending)), sub: `${nfmt(due.length)} projects with money due` })}
+        ${kpi({ label: 'Received to date', value: inr(sum(rows, (x) => x.m.received)), sub: `of ${inr(sum(rows, (x) => x.m.order))} ordered` })}
+        ${kpi({ label: 'Claimed, to verify', value: inr(sum(rows, (x) => x.m.claimed)), sub: 'Recorded by sales, waiting for Finance' })}
+        ${kpi({ label: 'Pending PO in the ledger', value: inr(sum(po, (e) => e.amount)), sub: `${nfmt(po.length)} lines in Revenue` })}
+      </div>
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag red">${svg('pay')} Money due</span> By project</h2><span class="sub">Order value minus what has come in · biggest first</span></div>
+        ${rows.length ? tbl(['Project', 'Client', 'Product', 'Ordered', 'Order value', 'Received', 'Pending', 'Delivered', 'Status', ''], rows.map(({ p, m, l }) => `<tr><td><b class="mono">${esc(p.project_code || '—')}</b><div class="s">${deptChip(p.dept)}</div></td><td><div class="t">${esc(p.name)}</div>${l ? `<div class="s"><a href="#" data-lead="${l.id}">${esc(l.ref_id || l.lead_no)}</a> · ${esc(L.ownerLabel(l))}</div>` : ''}</td><td>${esc(l ? L.line(l) : '')}</td><td>${p.order_date ? fmtDate(p.order_date) + `<div class="s">${age(p.order_date)} days ago</div>` : '—'}</td><td class="n">${inr(m.order)}</td><td class="n">${inr(m.received)}${m.claimed ? `<div class="s warn">${inr(m.claimed)} claimed</div>` : ''}</td><td class="n">${m.pending ? `<b class="bad">${inr(m.pending)}</b>` : '<span class="chip good">Paid</span>'}</td><td>${p.delivered ? `<span class="chip ${/^yes$/i.test(p.delivered) ? 'good' : /partial/i.test(p.delivered) ? 'warn' : ''}">${esc(p.delivered)}</span>` : '—'}</td><td><span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></td><td class="n">${m.pending && p.lead_id ? `<button class="btn small primary" data-colpay="${p.id}">Record payment</button>` : ''}</td></tr>`)) : empty('No projects yet', 'Won deals become projects. Import the sales sheet in Settings → Import to load them.')}
+      </section>
+      <section class="glass panel"><div class="panel-head"><h2>Pending PO lines</h2><span class="sub">From the revenue ledger · a verified payment on the same deal clears them</span></div>
+        ${po.length ? tbl(['Month', 'Process', 'Segment', 'Client', 'Linked', 'Amount'], po.map((e) => `<tr><td>${monShort(String(e.month).slice(0, 7))}</td><td>${deptChip(e.department)}</td><td>${esc(e.segment)}</td><td>${esc(e.client)}</td><td>${e.lead_id ? `<a href="#" data-lead="${e.lead_id}">${esc(e.opp_ref || 'open')}</a>` : esc(e.opp_ref || '')}</td><td class="n"><b>${inr(e.amount)}</b></td></tr>`)) : '<p class="faint">No pending POs.</p>'}
+      </section>`;
+    bindFilters(el, () => this.render(el)); bindLeadClicks(el);
+    el.querySelectorAll('[data-colpay]').forEach((b) => (b.onclick = () => collectModal(DB.get('projects', b.dataset.colpay), () => this.render(el))));
+  },
+};
+function collectModal(p, after) {
+  const m0 = projMoney(p); const fin = isFinance();
+  const m = openModal({ title: 'Record payment · ' + esc(p.name), width: 520,
+    body: `<p class="faint">${esc(p.project_code || '')} · pending ${inrFull(m0.pending)}</p><div class="form">${fld('cpa', 'Amount received (₹, as in the ledger)', inp('cpa', m0.pending, 'number'))}${fld('cpd', 'Received on', inp('cpd', todayStr(), 'date'))}${fld('cpm', 'Mode', sel('cpm', ['Bank transfer', 'UPI', 'Cheque', 'Cash', 'Other'], 'Bank transfer'))}${fld('cpr', 'Reference / UTR', inp('cpr', ''))}</div>
+      <p class="note ${fin ? 'good' : 'info'}">${fin ? 'You are Finance: this is saved as verified and shows in Revenue at once.' : 'This is saved as claimed. Finance verifies it, then it shows in Revenue.'}</p>`,
+    foot: '<button class="btn" data-c>Cancel</button><button class="btn primary" id="cpgo">Save payment</button>' });
+  m.el.querySelector('#cpgo').onclick = () => guard(async () => {
+    const amt = num(m.el, 'cpa'); if (!(amt > 0)) throw new Error('Enter the amount.');
+    await DB.insert('payments', { lead_id: p.lead_id, amount: amt, amount_ex: amt, paid_on: v(m.el, 'cpd') || todayStr(), mode: v(m.el, 'cpm'), reference: v(m.el, 'cpr'), milestone: 'Project collection', status: fin ? 'Verified' : 'Claimed' });
+    [DB.t.payments, DB.t.revenue_entries] = await Promise.all([DB.fetchAll('payments'), DB.fetchAll('revenue_entries')]);
+    m.close(); after?.(); DB.emit();
+  }, 'Payment saved');
+}
 const projItems = (id) => DB.t.project_items.filter((i) => i.project_id === id);
 const overdueItems = (id) => projItems(id).filter((i) => i.kind !== 'payment' && !['Done', 'Cancelled'].includes(i.status) && i.due_date && i.due_date < todayStr());
 VIEWS.projects = {
@@ -232,8 +282,8 @@ VIEWS.projects = {
       b.querySelectorAll('.kcard').forEach((c) => { c.ondragstart = (e) => { dragId = c.dataset.id; e.dataTransfer.setData('text/plain', dragId); }; });
       b.querySelectorAll('.kcol').forEach((col) => { col.ondragover = (e) => { e.preventDefault(); col.classList.add('over'); }; col.ondragleave = () => col.classList.remove('over'); col.ondrop = (e) => { e.preventDefault(); col.classList.remove('over'); const id = e.dataTransfer.getData('text/plain') || dragId; guard(async () => { await DB.update('projects', id, { status: col.dataset.col }); rer(); }, 'Status changed'); }; });
     } else if (PF.mode === 'timeline') b.innerHTML = projTimeline(rows);
-    else b.innerHTML = `<div class="tablewrap"><table><thead><tr><th>Project</th><th>Account</th><th>Owner</th><th>Status</th><th>Start</th><th>End</th><th class="n">Value</th><th class="n">Milestones</th><th class="n">Payments due</th><th>Renewal</th></tr></thead><tbody>
-      ${rows.map((p) => { const it = projItems(p.id); const ms = it.filter((i) => i.kind !== 'payment'); const pay = it.filter((i) => i.kind === 'payment' && ['Open', 'Invoiced'].includes(i.status)); const od = overdueItems(p.id).length; return `<tr class="click" data-proj="${p.id}"><td><div class="t">${esc(p.name)}</div><div class="s">${deptChip(p.dept)}</div></td><td>${esc(DB.get('institutions', p.institution_id)?.name || '')}</td><td>${esc(DB.pname(p.owner))}</td><td><span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></td><td>${fmtDate(p.start_date)}</td><td>${fmtDate(p.end_date || p.target_date)}</td><td class="n">${inr(p.value)}</td><td class="n">${ms.filter((i) => i.status === 'Done').length}/${ms.length}${od ? ` <span class="chip bad">${od} late</span>` : ''}</td><td class="n">${pay.length ? inr(sum(pay, (i) => i.amount)) : '—'}</td><td>${p.renewal_date ? `<span class="${daysAgo(p.renewal_date) >= -30 && p.renewal_date >= today ? 'chip warn' : ''}">${fmtDate(p.renewal_date)}</span>` : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
+    else b.innerHTML = `<div class="tablewrap"><table><thead><tr><th>Project</th><th>Account</th><th>Owner</th><th>Status</th><th>Start</th><th>End</th><th class="n">Order value</th><th class="n">Received</th><th class="n">Pending</th><th class="n">Milestones</th><th>Renewal</th></tr></thead><tbody>
+      ${rows.map((p) => { const it = projItems(p.id); const ms = it.filter((i) => i.kind !== 'payment'); const pay = it.filter((i) => i.kind === 'payment' && ['Open', 'Invoiced'].includes(i.status)); const od = overdueItems(p.id).length; return `<tr class="click" data-proj="${p.id}"><td><div class="t">${esc(p.name)}</div><div class="s">${deptChip(p.dept)}</div></td><td>${esc(DB.get('institutions', p.institution_id)?.name || '')}</td><td>${esc(DB.pname(p.owner))}</td><td><span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></td><td>${fmtDate(p.start_date)}</td><td>${fmtDate(p.end_date || p.target_date)}</td><td class="n">${inr(projMoney(p).order)}</td><td class="n">${inr(projMoney(p).received)}</td><td class="n">${projMoney(p).pending ? `<b class="bad">${inr(projMoney(p).pending)}</b>` : '—'}</td><td class="n">${ms.filter((i) => i.status === 'Done').length}/${ms.length}${od ? ` <span class="chip bad">${od} late</span>` : ''}${pay.length ? ` <span class="chip warn">${inr(sum(pay, (i) => i.amount))} due</span>` : ''}</td><td>${p.renewal_date ? `<span class="${daysAgo(p.renewal_date) >= -30 && p.renewal_date >= today ? 'chip warn' : ''}">${fmtDate(p.renewal_date)}</span>` : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
     el.querySelectorAll('[data-ps]').forEach((x) => (x.onclick = () => { PF.status = x.dataset.ps; rer(); }));
     el.querySelectorAll('[data-pm]').forEach((x) => (x.onclick = () => { PF.mode = x.dataset.pm; rer(); }));
     el.querySelector('#pqx')?.addEventListener('click', () => { PF.quick = ''; rer(); });

@@ -1,8 +1,8 @@
 /* Garuda CRM · UI toolkit */
 'use strict';
 
-const ST = { view: 'command', arg: null, period: 'month', dept: 'All', person: 'all', cfrom: '', cto: '', ldTab: 'leads', ldMode: { leads: 'list', deals: 'list' }, kbDept: '' };
-const UI_KEYS = ['period', 'dept', 'person', 'cfrom', 'cto', 'ldTab', 'ldMode', 'kbDept'];
+const ST = { view: 'command', arg: null, period: 'month', dept: 'All', prod: '', person: 'all', cfrom: '', cto: '', ldTab: 'leads', ldMode: { leads: 'list', deals: 'list' }, kbDept: '' };
+const UI_KEYS = ['period', 'dept', 'prod', 'person', 'cfrom', 'cto', 'ldTab', 'ldMode', 'kbDept'];
 /* filters and view choices are remembered per person on this device */
 const uiKey = () => 'garuda-crm-ui-' + (DB.me?.id || 'anon');
 function loadUI() { try { const x = JSON.parse(localStorage.getItem(uiKey()) || '{}'); UI_KEYS.forEach((k) => { if (x[k] !== undefined) ST[k] = x[k]; }); } catch (_) { /* private mode */ } fixUI(); }
@@ -65,6 +65,9 @@ const ICON = {
   deal: '<path d="M3 11l4-4 4 2 3-3 4 1 3 3-6 6-3-1-3 3-3-1z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
+  pay: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ''}</svg>`;
@@ -220,7 +223,7 @@ const canCEO = () => !hideSales() && (seesAll() || (hasTeam() && !isMember()));
 const canRevenue = () => (!isMember() && !hideSales()) || isFinance();
 const NAV = [
   ['Workspace', [['chat', 'Garuda Chat', 'chat', () => true]]],
-  ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
+  ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
   ['Execution', [['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
@@ -245,10 +248,21 @@ function badgeFor(k) {
 function go(view, arg) { location.hash = view + (arg ? '/' + arg : ''); }
 
 /* ---------- the shared filter bar: Department · Period · Person (remembered per person) ---------- */
+/* Team → process (department) → product; one team today, more later */
+const TEAMS = () => [...new Set(DEPTS().map((d) => d.team || 'RPTO Team'))];
+function deptSelect() {
+  const ts = TEAMS();
+  const all = ts.length === 1 ? `${ts[0]} · all processes` : 'All teams';
+  const groups = ts.map((t) => { const o = DEPTS().filter((d) => (d.team || 'RPTO Team') === t).map((d) => `<option value="${esc(d.code)}" ${ST.dept === d.code ? 'selected' : ''}>${esc(d.name)}</option>`).join(''); return ts.length === 1 ? o : `<optgroup label="${esc(t)}">${o}</optgroup>`; }).join('');
+  return `<label class="dsel" style="--dc:${esc(ST.dept === 'All' ? 'var(--accent)' : deptColor(ST.dept))}"><i class="ddot"></i><span class="sr">Team and process</span><select id="pdept" aria-label="Team and process"><option value="All" ${ST.dept === 'All' ? 'selected' : ''}>${esc(all)}</option>${groups}</select></label>`;
+}
+/* the products / courses of the chosen process */
+const prodList = (code) => [...new Set([...(dept(code).courses || []), ...visibleLeads().filter((l) => l.funnel === code).map(L.line)].filter((x) => x && x !== 'Not Specified'))].sort();
+function prodSelect() { const ps = prodList(ST.dept); if (!ps.length) return ''; return `<select id="pprod" aria-label="Product">${opts(ps, ST.prod || '', 'All products')}</select>`; }
 function filterBar({ person = true, dept = true, period = true, extra = '' } = {}) {
   const ps = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter'], ['fy', 'FY'], ['custom', 'Custom']];
   return `<div class="filters fbar" id="fbar">
-    ${dept ? `<label class="dsel" style="--dc:${esc(ST.dept === 'All' ? 'var(--accent)' : deptColor(ST.dept))}"><i class="ddot"></i><span class="sr">Team</span><select id="pdept" aria-label="Team">${[['All', 'All teams'], ...DEPTS().map((d) => [d.code, `${d.code} · ${d.name}`])].map(([k, t]) => `<option value="${esc(k)}" ${ST.dept === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` : ''}
+    ${dept ? deptSelect() : ''}${dept && ST.dept !== 'All' ? prodSelect() : ''}
     ${period ? `<div class="seg" role="group" aria-label="Period">${ps.map(([k, t]) => `<button data-period="${k}" aria-pressed="${ST.period === k}">${t}</button>`).join('')}</div>
     ${ST.period === 'custom' ? `<input type="date" id="cfrom" value="${ST.cfrom}" aria-label="From"><input type="date" id="cto" value="${ST.cto}" aria-label="To">` : ''}` : ''}
     ${person && hasTeam() ? `<select id="pperson" aria-label="Person">${personOpts(ST.person, scopePeople().filter((p) => inDept(p, ST.dept) || p.id === ST.person))}</select>` : ''}${extra}
@@ -256,7 +270,8 @@ function filterBar({ person = true, dept = true, period = true, extra = '' } = {
 }
 function bindFilters(root, rerender) {
   root.querySelectorAll('[data-period]').forEach((b) => (b.onclick = () => { ST.period = b.dataset.period; if (ST.period === 'custom' && !ST.cfrom) { ST.cfrom = localDate(new Date(Date.now() - 30 * 864e5)); ST.cto = todayStr(); } saveUI(); rerender(); }));
-  const pd = root.querySelector('#pdept'); if (pd) pd.onchange = () => { ST.dept = pd.value; saveUI(); rerender(); };
+  const pd = root.querySelector('#pdept'); if (pd) pd.onchange = () => { ST.dept = pd.value; ST.prod = ''; saveUI(); rerender(); };
+  const pr = root.querySelector('#pprod'); if (pr) pr.onchange = () => { ST.prod = pr.value; saveUI(); rerender(); };
   const pp = root.querySelector('#pperson'); if (pp) pp.onchange = () => { ST.person = pp.value; saveUI(); rerender(); };
   ['cfrom', 'cto'].forEach((id) => { const e = root.querySelector('#' + id); if (e) e.onchange = () => { ST[id] = e.value; saveUI(); rerender(); }; });
 }

@@ -396,6 +396,8 @@ const L = {
   /* fees imported from the sales sheet already sit in the revenue ledger as monthly totals, so sheet admissions with no CRM payment show no balance */
   due: (l) => (L.won(l) && !(l.imported && dept(l.funnel).has_admissions && !DB.t.payments.some((p) => p.lead_id === l.id)) ? Math.max(0, (Number(l.value) || 0) - L.paidEx(l)) : 0),
   product: (l) => DB.get('products', l.product_id),
+  /* the product line of a lead: the course (Academy) or the interest (CoE, Establishment, Other Services) */
+  line: (l) => [l.course, l.sub_category, DB.get('products', l.product_id)?.line].find((x) => x && x !== 'Not Specified') || '',
   inst: (l) => DB.get('institutions', l.institution_id),
   company: (l) => L.inst(l)?.name || l.org || '',
   remarks: (l) => DB.t.remarks.filter((r) => r.lead_id === l.id).sort((a, b) => a.created_at.localeCompare(b.created_at)),

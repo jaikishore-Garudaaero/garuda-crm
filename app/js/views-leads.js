@@ -32,6 +32,11 @@ const QUICK = {
   stale: ['No update lately', (l) => L.inPipe(l) && daysAgo(L.updated(l)) >= (Number(DB.settings.stale_deal_days) || 7), 'deals'],
   hot: ['Hot, follow-up due', (l) => L.open(l) && (l.temperature === 'Hot' || l.ai_band === 'Hot') && l.next_followup_at && l.next_followup_at.slice(0, 10) <= todayStr(), null],
   closing: ['Closing in 14 days', (l) => L.inPipe(l) && l.expected_close && l.expected_close >= todayStr() && daysAgo(l.expected_close) >= -14, 'deals'],
+  hotwarm: ['Hot and warm (P1, P2)', (l) => L.open(l) && /^P[12]/.test(l.campaign_tier || ''), null],
+  inherited: ['Handed over from old staff', (l) => l.inherited, null],
+  inh_new: ['Handed over, not worked yet', (l) => l.inherited && !l.touched_at && L.open(l), null],
+  inh_done: ['Handed over, worked since', (l) => l.inherited && !!l.touched_at, null],
+  otherdept: ['Other department enquiries', (l) => !!l.routed_dept && !/^RPTO/.test(l.routed_dept), null],
   nofee: ['Called, fee not recorded', (l) => L.open(l) && !l.is_deal && l.last_contact_at && daysAgo(l.last_contact_at) <= 30 && !l.fee_disclosed && S.list(l.funnel, 'deal').some((s) => s.needs_fee), 'leads'],
 };
 const LF = { q: '', state: 'open', quick: '', sort: '', dir: -1, limit: 200, col: {}, tab: '' };

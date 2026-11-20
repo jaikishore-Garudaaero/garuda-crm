@@ -1978,3 +1978,18 @@ body::after{background:
 .np-more{font-size:12px;margin-left:4px}
 @media (max-width:700px){.needs-strip{border-radius:18px}.np .t{max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .kcard .v{font-size:clamp(19px,1.8vw,26px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* v5.5 · campaign tiers, handed-over leads, collections */
+.tiers{display:flex;flex-direction:column;gap:6px}
+.trow{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr) 70px;gap:10px;align-items:center;font-size:12.5px}
+.trow .tl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .bar{height:16px;border-radius:6px;background:var(--hair);overflow:hidden}
+.trow .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--t-info),var(--accent))}
+.trow.t-p .bar i{background:linear-gradient(90deg,#e0573c,#f0a24a)}
+.trow.t-r .bar i{background:linear-gradient(90deg,#7b5cf0,#b18cf5)}
+.trow.t-x .bar i{background:color-mix(in srgb,var(--ink3) 55%,transparent)}
+.trow .num{text-align:right}
+.tiers-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0 0;font-size:12.5px;color:var(--ink2)}
+.tiers-note svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2}
+.s.warn{color:var(--t-warn)}
+b.bad{color:var(--t-bad)}
+@media (max-width:560px){.trow{grid-template-columns:110px minmax(0,1fr) 54px}}
