@@ -77,6 +77,15 @@ function needsAction(c) {
   ];
 }
 const actionList = (c) => `<ul class="alist">${needsAction(c).map(([t, n, to, tone, ic]) => `<li><button data-go="${to}" class="${n ? '' : 'zero'}"><span class="ai ${n ? tone : 'mute'}">${svg(ic)}</span><span class="t">${t}</span><b class="chip tone ${n ? tone : 'mute'}">${nfmt(n)}</b></button></li>`).join('')}</ul>`;
+/* the same counts as a slim strip: only what needs someone, each a small pill */
+function actionStrip(c) {
+  const all = needsAction(c); const live = all.filter((x) => x[1]);
+  return `<section class="glass needs-strip" aria-label="Needs action right now"><span class="gtag red">Needs action</span>
+    ${live.map(([t, n, to, tone, ic]) => `<button class="np tone-${tone}" data-go="${to}" title="Open the list"><span class="ai ${tone}">${svg(ic)}</span><span class="t">${t}</span><b>${nfmt(n)}</b></button>`).join('') || `<span class="np ok"><span class="ai good">${svg('check')}</span><span class="t">All clear: nothing overdue right now</span></span>`}
+    ${live.length && live.length < all.length ? `<span class="faint np-more">${all.length - live.length} other checks clear</span>` : ''}</section>`;
+}
+/* a KPI card that opens its records */
+const kcard = (key, label, value, sub, tone = '') => `<button class="glass kpi kcard ${tone}" data-dk="${esc(key)}" type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}<span class="drill">See details →</span></button>`;
 const bindGo = (el) => el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
 
 /* ================= Command Centre: the CEO view in pictures; every card follows the period and team in the filter ================= */
@@ -241,17 +250,19 @@ VIEWS.sales = {
     /* product interest */
     const interest = Object.entries(groupBy(inR, (l) => L.product(l)?.name || (l.course && l.course !== 'Not Specified' ? l.course : '') || (l.sub_category && l.sub_category !== 'Not Specified' ? l.sub_category : '') || 'Not specified')).sort((a, b) => b[1].length - a[1].length).slice(0, 12);
     const weighted = sum(openDeals, (l) => (l.value * L.prob(l)) / 100);
+    [['k1', `New leads · ${r.label}`, inR], ['k2', `Converted to deals · ${r.label}`, dealsNew], ['k3', `Won · ${r.label}`, won], ['k4', `Lost · ${r.label}`, lost], ['k5', 'Open deals', openDeals], ['k6', 'Open deals · weighted pipeline', openDeals],
+      ['k7', `Admissions · ${r.label}`, adm.map((a) => a.lead_id && DB.get('leads', a.lead_id)).filter(Boolean)]].forEach(([k, t, rows]) => D.set(k, { title: t, rows }));
     el.innerHTML = `${filterBar()}
-      <section class="glass panel needs"><div class="panel-head"><h2><span class="gtag red">Needs action</span> Right now</h2><span class="sub">Open records in this filter · click a line to open the list</span></div>${actionList(commandCounts())}</section>
-      <div class="kpis">
-        ${kpi({ label: 'New leads', value: put('k1', `New leads · ${r.label}`, inR), sub: r.label })}
-        ${kpi({ label: 'New deals', value: put('k2', `Converted to deals · ${r.label}`, dealsNew), sub: 'Converted in the period' })}
-        ${kpi({ label: 'Won', value: put('k3', `Won · ${r.label}`, won), sub: 'Conversions in the period' })}
-        ${kpi({ label: 'Lost', value: put('k4', `Lost · ${r.label}`, lost), sub: 'Closed lost in the period' })}
-        ${kpi({ label: 'Open pipeline', value: inr(sum(openDeals, (l) => l.value)), sub: `${put('k5', 'Open deals', openDeals)} open deals` })}
-        ${kpi({ label: 'Weighted pipeline', value: inr(weighted), sub: 'Value × stage win %' })}
-        ${[...admDepts].some((c) => M.deptOk(c)) ? kpi({ label: 'Admissions', value: nfmt(admN), sub: `${nfmt(sum(adm, (a) => a.paid))} paid · ${nfmt(sum(adm, (a) => a.free))} free · ${[...admDepts].join(', ')}` }) : ''}
+      <div class="kpis kclick">
+        ${kcard('k1', 'New leads', nfmt(inR.length), r.label)}
+        ${kcard('k2', 'New deals', nfmt(dealsNew.length), 'Converted in the period')}
+        ${kcard('k3', 'Won', nfmt(won.length), 'Conversions in the period', won.length ? 'good' : '')}
+        ${kcard('k4', 'Lost', nfmt(lost.length), 'Closed lost in the period', lost.length ? 'bad' : '')}
+        ${kcard('k5', 'Open pipeline', inr(sum(openDeals, (l) => l.value)), `${nfmt(openDeals.length)} open deals`)}
+        ${kcard('k6', 'Weighted pipeline', inr(weighted), 'Value × stage win %')}
+        ${[...admDepts].some((c) => M.deptOk(c)) ? kcard('k7', 'Admissions', nfmt(admN), `${nfmt(sum(adm, (a) => a.paid))} paid · ${nfmt(sum(adm, (a) => a.free))} free · ${[...admDepts].join(', ')}`) : ''}
       </div>
+      ${actionStrip(commandCounts())}
       <section class="glass panel"><div class="panel-head"><h2>Inflow by month and source</h2><span class="sub">Leads by lead date</span></div>${series.length ? barChart({ labels: months.map(monShort), series, stacked: true, fmt: (x) => nfmt(Math.round(x)) }) : empty('No leads', 'Nothing came in for these months.')}</section>
       <div class="grid g2">${funnels}</div>
       <div class="grid g2">
@@ -265,7 +276,7 @@ VIEWS.sales = {
         <section class="glass panel"><div class="panel-head"><h2>Stuck deals</h2><span class="sub">In the same stage ${stuckDays}+ days</span></div>${tbl(['Stage', 'Open', 'Stuck', 'Avg days'], stuckRows.map((x, i) => `<tr><td>${deptChip(x.code)} ${esc(x.s.key)}</td><td class="n">${x.a.length}</td><td class="n">${put('st' + i, `Stuck in ${x.s.key}`, x.st)}</td><td class="n">${x.avg}</td></tr>`))}</section>
         <section class="glass panel"><div class="panel-head"><h2>Product interest</h2><span class="sub">Leads dated in ${r.label.toLowerCase()}</span></div>${interest.length ? `<div class="list">${interest.map(([k, a], i) => `<div class="item"><span class="grow">${esc(k)}</span>${put('pi' + i, 'Interested in ' + k, a)}</div>`).join('')}</div>` : '<p class="faint">No leads in this period.</p>'}</section>
       </div>`;
-    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindGo(el.querySelector('.needs'));
+    bindFilters(el, () => this.render(el)); bindDrills(el, D); bindGo(el.querySelector('.needs-strip'));
   },
 };
 

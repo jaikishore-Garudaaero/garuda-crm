@@ -1920,3 +1920,61 @@ body::after{background:
 @media (max-width:900px){.tk-board{grid-template-columns:1fr}.tov-k{grid-template-columns:repeat(3,minmax(0,1fr))}.tk-row{grid-template-columns:28px minmax(0,1fr) auto 26px}.tk-row .tk-rs:nth-of-type(n+3){display:none}}
 @media (max-width:560px){.tov-grid{grid-template-columns:1fr}.tov-ring{justify-self:center}.tkd-subs li{flex-wrap:wrap}.tkd-so,.tkd-sdd{max-width:none;flex:1}.tkd-f{grid-template-columns:90px minmax(0,1fr)}}
 .tk-bar select{width:auto;flex:none;min-width:150px}@media (max-width:560px){.tk-bar select{flex:1}}
+
+/* ===================== v5.4 · light and dark in the same airy palette, clearer liquid glass, Sales Dashboard strip ===================== */
+:root{--g-top:rgba(255,255,255,.10); --g-bot:rgba(255,255,255,.015)}
+:root[data-theme="dark"]{--g-top:rgba(255,255,255,.035); --g-bot:rgba(255,255,255,.004); --g-border:rgba(255,255,255,.2)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--g-top:rgba(255,255,255,.035); --g-bot:rgba(255,255,255,.004); --g-border:rgba(255,255,255,.2)}}
+/* liquid glass: clear, a little refraction, bright rims */
+.glass,.kpi,.ccard,.card,.col,.kcol,details.acc,.lcard,.side,.topbar,.tabbar,.mhead{backdrop-filter:blur(6px) saturate(185%) brightness(1.03)!important;-webkit-backdrop-filter:blur(6px) saturate(185%) brightness(1.03)!important}
+:root[data-theme="dark"] :is(.glass,.kpi,.ccard,.card,.col,.kcol,details.acc,.lcard,.side,.topbar,.tabbar,.mhead){backdrop-filter:blur(7px) saturate(170%)!important;-webkit-backdrop-filter:blur(7px) saturate(170%)!important;
+  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.34),inset 0 -1px 2px rgba(255,255,255,.1),inset 1.5px 0 0 rgba(255,255,255,.16),inset -1px 0 0 rgba(255,255,255,.08),inset 0 -18px 32px -22px rgba(150,180,255,.22),0 22px 46px -28px rgba(0,0,0,.8)!important}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) :is(.glass,.kpi,.ccard,.card,.col,.kcol,details.acc,.lcard,.side,.topbar,.tabbar,.mhead){backdrop-filter:blur(7px) saturate(170%)!important;-webkit-backdrop-filter:blur(7px) saturate(170%)!important;
+  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.34),inset 0 -1px 2px rgba(255,255,255,.1),inset 1.5px 0 0 rgba(255,255,255,.16),inset -1px 0 0 rgba(255,255,255,.08),inset 0 -18px 32px -22px rgba(150,180,255,.22),0 22px 46px -28px rgba(0,0,0,.8)!important}}
+/* light: sky blue on the left, warm rose on the right, contour lines, like the reference */
+body::after{background:
+  linear-gradient(115deg,transparent 14%,rgba(255,255,255,.4) 22%,transparent 30%),
+  var(--topo) center/cover no-repeat,
+  radial-gradient(ellipse 55% 60% at 4% 30%,rgba(60,150,235,.26),transparent 70%),
+  radial-gradient(ellipse 45% 50% at 55% 108%,rgba(90,110,230,.14),transparent 70%),
+  radial-gradient(ellipse 45% 55% at 100% 45%,rgba(236,120,150,.20),transparent 70%),
+  radial-gradient(ellipse 40% 40% at 88% 0%,rgba(255,190,150,.16),transparent 70%),
+  linear-gradient(115deg,#eef5ff,#f6f9ff 58%,#fff3f1)!important}
+/* dark: the same picture at night: deep blue on the left, plum and rose on the right */
+:root[data-theme="dark"] body::after{background:
+  linear-gradient(115deg,transparent 16%,rgba(255,255,255,.035) 23%,transparent 30%),
+  var(--topo) center/cover no-repeat,
+  radial-gradient(ellipse 55% 60% at 4% 30%,rgba(30,120,230,.42),transparent 70%),
+  radial-gradient(ellipse 45% 50% at 55% 108%,rgba(70,80,210,.26),transparent 70%),
+  radial-gradient(ellipse 45% 55% at 100% 45%,rgba(190,50,110,.30),transparent 70%),
+  radial-gradient(ellipse 40% 40% at 88% 0%,rgba(140,70,200,.24),transparent 70%),
+  linear-gradient(115deg,#081a33,#0a1630 58%,#1a1030)!important}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) body::after{background:
+  linear-gradient(115deg,transparent 16%,rgba(255,255,255,.035) 23%,transparent 30%),
+  var(--topo) center/cover no-repeat,
+  radial-gradient(ellipse 55% 60% at 4% 30%,rgba(30,120,230,.42),transparent 70%),
+  radial-gradient(ellipse 45% 50% at 55% 108%,rgba(70,80,210,.26),transparent 70%),
+  radial-gradient(ellipse 45% 55% at 100% 45%,rgba(190,50,110,.30),transparent 70%),
+  radial-gradient(ellipse 40% 40% at 88% 0%,rgba(140,70,200,.24),transparent 70%),
+  linear-gradient(115deg,#081a33,#0a1630 58%,#1a1030)!important}}
+:root[data-theme="dark"] body{background:#0a1630}
+/* Sales Dashboard: clickable KPI cards on top */
+.kpis.kclick{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kcard{font:inherit;color:inherit;text-align:left;cursor:pointer;border:1px solid var(--g-border);transition:transform .18s,box-shadow .18s}
+.kcard:hover,.kcard:focus-visible{transform:translateY(-3px);outline:none}
+.kcard.good .v{color:var(--t-good)}.kcard.bad .v{color:var(--t-bad)}
+/* the Needs action strip: one slim row of pills */
+.needs-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 12px;border-radius:999px;margin:0 0 14px}
+.needs-strip .gtag{flex:none}
+.np{display:inline-flex;align-items:center;gap:7px;padding:4px 6px 4px 4px;border-radius:999px;border:1px solid var(--g-border);background:var(--glass);font:inherit;font-size:12.5px;color:var(--ink);cursor:pointer;transition:transform .15s}
+.np:hover{transform:translateY(-1px)}
+.np .ai{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:none}
+.np .ai svg{width:13px;height:13px}
+.np b{min-width:22px;height:22px;padding:0 7px;border-radius:999px;display:inline-grid;place-items:center;font-size:12px;background:var(--hair)}
+.np.tone-bad b{background:color-mix(in srgb,var(--t-bad) 18%,transparent);color:var(--t-bad)}
+.np.tone-warn b{background:color-mix(in srgb,var(--t-warn) 20%,transparent);color:var(--t-warn)}
+.np.tone-info b{background:color-mix(in srgb,var(--t-info) 18%,transparent);color:var(--t-info)}
+.np.ok{cursor:default}
+.np-more{font-size:12px;margin-left:4px}
+@media (max-width:700px){.needs-strip{border-radius:18px}.np .t{max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.kcard .v{font-size:clamp(19px,1.8vw,26px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
