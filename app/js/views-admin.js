@@ -367,16 +367,24 @@ function showPlan(out, P, rer) {
     <div class="row" style="margin-top:10px"><button class="btn primary" id="xlgo" ${P.warn.some((w) => w.startsWith('Statuses')) ? 'disabled' : ''}>${svg('upload')} Import ${nfmt(P.leads.length)} leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines</button></div><div id="xlbar"></div>`;
   out.querySelector('#xlgo').onclick = () => { if (!IMP.running) runImport(P); };
 }
+/* one batch of leads; if the server runs out of time on it, save it again in smaller pieces */
+async function importLeadRows(rows, tot) {
+  try { const r = await DB.rpc('import_leads', { p_rows: rows }); tot.new += r.new; tot.updated += r.updated; tot.no_owner += r.no_owner; }
+  catch (e) {
+    if (!/timeout|canceling statement/i.test(e.message || '') || rows.length <= 10) throw e;
+    const h = Math.ceil(rows.length / 2); await importLeadRows(rows.slice(0, h), tot); await importLeadRows(rows.slice(h), tot);
+  }
+}
 async function runImport(P) {
   IMP.running = true;
-  const steps = []; for (let i = 0; i < P.leads.length; i += 500) steps.push(['leads', P.leads.slice(i, i + 500)]);
+  const steps = []; for (let i = 0; i < P.leads.length; i += 200) steps.push(['leads', P.leads.slice(i, i + 200)]);
   steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null]);
   const tot = { new: 0, updated: 0, no_owner: 0 };
   try {
     for (let i = 0; i < steps.length; i++) {
       const [k, rows] = steps[i];
       IMP.status = `<div class="pbar info" style="margin-top:12px"><i style="width:${Math.round((i / steps.length) * 100)}%"></i></div><p class="faint">Saving ${k}… step ${i + 1} of ${steps.length}. Keep this page open.</p>`; impPaint();
-      if (k === 'leads') { const r = await DB.rpc('import_leads', { p_rows: rows }); tot.new += r.new; tot.updated += r.updated; tot.no_owner += r.no_owner; }
+      if (k === 'leads') await importLeadRows(rows, tot);
       else if (k === 'projects' && rows.length) await DB.rpc('import_projects', { p_rows: rows });
       else if (k === 'revenue' && rows.length) await DB.rpc('import_revenue', { p_rows: rows });
       else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.rpc('import_admissions', { p_adm: P.adm, p_src: P.src });
