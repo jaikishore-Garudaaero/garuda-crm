@@ -39,17 +39,23 @@ const QUICK = {
   otherdept: ['Other department enquiries', (l) => !!l.routed_dept && !/^RPTO/.test(l.routed_dept), null],
   nofee: ['Called, fee not recorded', (l) => L.open(l) && !l.is_deal && l.last_contact_at && daysAgo(l.last_contact_at) <= 30 && !l.fee_disclosed && S.list(l.funnel, 'deal').some((s) => s.needs_fee), 'leads'],
 };
-const LF = { q: '', state: 'open', quick: '', sort: '', dir: -1, limit: 200, col: {}, tab: '' };
+const LF = { q: '', state: 'open', quick: '', sort: '', dir: -1, per: 20, page: 1, col: {}, tab: '' };
+try { const pp = Number(localStorage.getItem('garuda-ld-per')); if ([20, 50, 100].includes(pp)) LF.per = pp; } catch (_) { /* no storage */ }
+/* a follow-up is an open lead in a follow-up status: it lives in Follow-ups, not in Leads */
+const isFU = (l) => !l.is_deal && L.open(l) && /follow/i.test(l.stage || '');
 const LCOLS = {
-  leads: [['name', 'Name'], ['company', 'Company'], ['stage', 'Status'], ['email', 'Email'], ['phone', 'Phone'], ['owner', 'Assigned to'], ['date', 'Lead date'], ['remark', 'Remarks']],
+  leads: [['company', 'Organisation'], ['name', 'Lead name'], ['stage', 'Status'], ['phone', 'Phone'], ['email', 'Email'], ['owner', 'Assigned to'], ['date', 'Lead date'], ['remark', 'Remarks']],
+  followups: [['company', 'Organisation'], ['name', 'Lead name'], ['stage', 'Status'], ['next', 'Next follow-up'], ['phone', 'Phone'], ['owner', 'Assigned to'], ['date', 'Lead date'], ['remark', 'Latest remark']],
   deals: [['company', 'Company'], ['stage', 'Status'], ['email', 'Email'], ['phone', 'Phone'], ['owner', 'Assigned to'], ['value', 'Value'], ['close', 'Closure date'], ['remark', 'Remarks']],
 };
-const cellVal = (l, k) => ({ name: l.name, company: L.company(l) || (l.is_deal ? l.name : ''), stage: l.stage, email: l.email || '', phone: l.phone || '', owner: L.ownerLabel(l), date: (l.enquiry_date || l.created_at || '').slice(0, 10), remark: L.latestRemark(l) || '', value: Number(l.value) || 0, close: l.expected_close || '' })[k];
+const cellVal = (l, k) => ({ name: l.name, company: L.company(l) || (l.is_deal ? l.name : ''), stage: l.stage, email: l.email || '', phone: l.phone || '', owner: L.ownerLabel(l), date: (l.enquiry_date || l.created_at || '').slice(0, 10), remark: L.latestRemark(l) || '', value: Number(l.value) || 0, close: l.expected_close || '', next: l.next_followup_at || '' })[k];
 function ldRows(tab) {
-  const deal = tab === 'deals';
+  const deal = tab === 'deals'; const fu = tab === 'followups';
   const q = LF.quick && QUICK[LF.quick];
   return M.leads().filter((l) => {
     if (!!l.is_deal !== deal) return false;
+    if (fu && !isFU(l)) return false;
+    if (tab === 'leads' && !q && LF.state === 'open' && isFU(l)) return false;
     if (q && !q[1](l)) return false;
     if (!q) { if (LF.state === 'open' && !L.open(l)) return false; if (LF.state === 'won' && !L.won(l)) return false; if (LF.state === 'lost' && !L.lost(l)) return false; if (LF.state === 'closed' && !L.closed(l)) return false; }
     if (LF.q) { const s = LF.q.toLowerCase(); if (![l.name, l.phone, l.email, l.lead_no, l.ref_id, l.contact_name, L.company(l), l.city, l.owner_name].some((x) => (x || '').toLowerCase().includes(s))) return false; }
@@ -58,22 +64,23 @@ function ldRows(tab) {
   });
 }
 VIEWS.leads = {
-  title: () => (ST.view === 'deals' ? 'Deals' : 'Leads'),
-  sub: () => (ST.view === 'deals' ? 'Open deals with a value and a closure date, through to won or lost.' : 'Every enquiry until it becomes a deal. Convert a lead to a deal when there is a value and a closure date.'),
+  title: () => (ST.view === 'deals' ? 'Deals' : ST.view === 'followups' ? 'Follow-ups' : 'Leads'),
+  sub: () => (ST.view === 'deals' ? 'Open deals with a value and a closure date, through to won or lost.' : ST.view === 'followups' ? 'Leads in a follow-up status, the next call first. Overdue ones are marked red.' : 'Every new enquiry until it becomes a follow-up or a deal. Convert a lead to a deal when there is a value and a closure date.'),
   actions: () => `${hideSales() ? '' : `<button class="btn" id="callmode">${svg('phone')} Call mode</button>${ST.view === 'deals' ? '' : `<button class="btn primary" id="newlead">${svg('plus')} New lead</button>`}`}`,
   render(el) {
-    const tab = ST.view === 'deals' ? 'deals' : 'leads';
+    const tab = ST.view === 'deals' ? 'deals' : ST.view === 'followups' ? 'followups' : 'leads';
     if (ST.arg) { const a = ST.arg; ST.arg = null; if (QUICK[a]) { LF.quick = a; if (QUICK[a][2] && QUICK[a][2] !== tab) return go(QUICK[a][2], a); } }
     if (LF.quick && QUICK[LF.quick][2] && QUICK[LF.quick][2] !== tab) LF.quick = '';
-    if (LF.tab !== tab) { LF.col = {}; LF.sort = ''; LF.tab = tab; }
-    const mode = ST.ldMode[tab] || 'list';
-    const all = M.leads(); const n = tab === 'deals' ? all.filter(L.inPipe) : all.filter((l) => !l.is_deal && L.open(l));
+    if (LF.tab !== tab) { LF.col = {}; LF.sort = ''; LF.tab = tab; LF.page = 1; if (tab === 'followups') LF.state = 'open'; }
+    const mode = tab === 'followups' ? 'list' : ST.ldMode[tab] || 'list';
+    const all = M.leads(); const n = tab === 'deals' ? all.filter(L.inPipe) : tab === 'followups' ? all.filter(isFU) : all.filter((l) => !l.is_deal && L.open(l) && !isFU(l));
+    const late = tab === 'followups' ? n.filter((l) => l.next_followup_at && new Date(l.next_followup_at) < new Date()).length : 0;
     const wt = tab === 'deals' ? ` · ${inr(sum(n, (l) => l.value))} open · weighted ${inr(sum(n, (l) => (l.value * L.prob(l)) / 100))}` : '';
     el.innerHTML = `${filterBar({ period: false })}
       <section class="glass panel">
         <div class="row between ldhead">
-          <div class="ldcount"><b>${nfmt(n.length)}</b> <span class="faint">open ${tab}${wt}</span></div>
-          <div class="seg" role="group" aria-label="View"><button data-mode="list" aria-pressed="${mode === 'list'}">${svg('list')} List</button><button data-mode="kanban" aria-pressed="${mode === 'kanban'}">${svg('board')} Kanban</button></div>
+          <div class="ldcount"><b>${nfmt(n.length)}</b> <span class="faint">open ${tab === 'followups' ? 'follow-ups' : tab}${wt}${late ? ` · <span class="bad">${nfmt(late)} overdue</span>` : ''}</span></div>
+          ${tab === 'followups' ? '' : `<div class="seg" role="group" aria-label="View"><button data-mode="list" aria-pressed="${mode === 'list'}">${svg('list')} List</button><button data-mode="kanban" aria-pressed="${mode === 'kanban'}">${svg('board')} Kanban</button></div>`}
         </div>
         <div id="ldbody"></div></section>`;
     el.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { ST.ldMode = { ...ST.ldMode, [tab]: b.dataset.mode }; saveUI(); this.render(el); }));
@@ -81,9 +88,10 @@ VIEWS.leads = {
     const body = el.querySelector('#ldbody');
     if (mode === 'kanban') kanban(body, tab, () => this.render(el)); else ldList(body, tab, () => this.render(el));
   },
-  mount() { $('#newlead')?.addEventListener('click', () => newLeadModal()); $('#callmode')?.addEventListener('click', () => callMode(ldRows(ST.view === 'deals' ? 'deals' : 'leads').filter(L.open))); },
+  mount() { $('#newlead')?.addEventListener('click', () => newLeadModal()); $('#callmode')?.addEventListener('click', () => callMode(ldRows(ST.view === 'deals' ? 'deals' : ST.view === 'followups' ? 'followups' : 'leads').filter(L.open))); },
 };
 VIEWS.deals = VIEWS.leads;
+VIEWS.followups = VIEWS.leads;
 
 /* the choices a column filter offers: companies, or months for dates */
 function colChoices(key, tab) {
@@ -95,9 +103,10 @@ function colChoices(key, tab) {
 function ldList(box, tab, rer) {
   const cols = LCOLS[tab];
   let rows = ldRows(tab);
-  const k = LF.sort || (tab === 'deals' ? 'close' : 'date');
-  rows.sort((a, b) => { const x = cellVal(a, k), y = cellVal(b, k); const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y)); return c * (LF.sort ? LF.dir : tab === 'deals' ? 1 : -1); });
-  const total = rows.length; const shown = rows.slice(0, LF.limit);
+  const k = LF.sort || (tab === 'deals' ? 'close' : tab === 'followups' ? 'next' : 'date');
+  rows.sort((a, b) => { const x = cellVal(a, k), y = cellVal(b, k); if (k === 'next' && !LF.sort && (!x || !y)) return !x && !y ? 0 : x ? -1 : 1; const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y)); return c * (LF.sort ? LF.dir : tab === 'deals' || tab === 'followups' ? 1 : -1); });
+  const total = rows.length; const pages = Math.max(1, Math.ceil(total / LF.per)); LF.page = clamp(LF.page, 1, pages);
+  const from = (LF.page - 1) * LF.per; const shown = rows.slice(from, from + LF.per);
   const deptCodes = ST.dept === 'All' ? DEPTS().map((d) => d.code) : [ST.dept];
   const statusOpts = [...new Set(deptCodes.flatMap((c) => S.list(c, tab === 'deals' ? 'deal' : 'lead').map((s) => s.key)))];
   const ownerOpts = [...new Set(visibleLeads().map((l) => L.ownerLabel(l)))].sort();
@@ -108,33 +117,35 @@ function ldList(box, tab, rer) {
     if (key === 'value') return `<td class="n">${inr(l.value)}</td>`;
     if (key === 'close') return `<td>${l.expected_close ? `<span class="${l.expected_close < todayStr() && L.open(l) ? 'chip bad' : ''}">${fmtDate(l.expected_close)}</span>` : '—'}</td>`;
     if (key === 'date') return `<td>${fmtDate(l.enquiry_date || l.created_at)}</td>`;
+    if (key === 'next') return `<td>${l.next_followup_at ? `<span class="${new Date(l.next_followup_at) < new Date() ? 'chip bad' : 'chip tone info'}">${fmtDT(l.next_followup_at)}</span>` : '<span class="faint">Not set</span>'}</td>`;
     if (key === 'remark') { const r = L.latestRemark(l); return `<td class="rem" title="${esc(r)}">${esc(r) || '<span class="faint">—</span>'}</td>`; }
-    if (key === 'name') return `<td><div class="t">${esc(l.name)}</div><div class="s">${funnelChip(l.funnel)} ${esc(l.ref_id || l.lead_no || '')}</div></td>`;
-    if (key === 'company') return `<td>${tab === 'deals' ? `<div class="t">${esc(L.company(l) || l.name)}</div><div class="s">${funnelChip(l.funnel)} ${L.company(l) ? esc(l.name) : ''}</div>` : esc(L.company(l))}</td>`;
+    if (key === 'name') return `<td><div class="t">${esc(l.name)}</div><div class="s">${funnelChip(l.funnel)} ${esc(l.ref_id || l.lead_no || '')}${l.city ? ' · ' + esc(l.city) : ''}</div></td>`;
+    if (key === 'company') return `<td>${tab === 'deals' ? `<div class="t">${esc(L.company(l) || l.name)}</div><div class="s">${funnelChip(l.funnel)} ${L.company(l) ? esc(l.name) : ''}</div>` : L.company(l) ? `<div class="t org">${esc(L.company(l))}</div>` : '<span class="faint">—</span>'}</td>`;
     return `<td>${esc(cellVal(l, key))}</td>`;
   };
   const quick = LF.quick && QUICK[LF.quick];
   box.innerHTML = `<div class="filters" style="margin:10px 0">
       <input type="search" id="lq" placeholder="Search name, phone, email, company…" value="${esc(LF.q)}" aria-label="Search">
-      ${quick ? `<span class="chip acc qchip">${esc(quick[0])} <button class="btn ghost small" id="qx" aria-label="Clear">${svg('x')}</button></span>` : `<div class="seg">${[['open', 'Open'], ['won', 'Won'], ['lost', 'Lost'], ['closed', 'Duplicate / other'], ['all', 'All']].map(([k0, t]) => `<button data-state="${k0}" aria-pressed="${LF.state === k0}">${t}</button>`).join('')}</div>`}
-      <span class="faint" style="font-size:12.5px">${nfmt(total)} ${tab}${tab === 'deals' ? ` · ${inr(sum(rows, (l) => l.value))}` : ''}</span>${toneLegend()}</div>
+      ${quick ? `<span class="chip acc qchip">${esc(quick[0])} <button class="btn ghost small" id="qx" aria-label="Clear">${svg('x')}</button></span>` : tab === 'followups' ? '' : `<div class="seg">${[['open', 'Open'], ['won', 'Won'], ['lost', 'Lost'], ['closed', 'Duplicate / other'], ['all', 'All']].map(([k0, t]) => `<button data-state="${k0}" aria-pressed="${LF.state === k0}">${t}</button>`).join('')}</div>`}
+      <span class="faint" style="font-size:12.5px">${nfmt(total)} ${tab === 'followups' ? 'follow-ups' : tab}${tab === 'deals' ? ` · ${inr(sum(rows, (l) => l.value))}` : ''}</span>${toneLegend()}</div>
     <div class="row bulk" id="bulk" hidden><b id="bulkn"></b>
       ${canReassign() ? `<select id="bassign"><option value="">Assign to…</option>${assignablePeople().map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`).join('')}</select>` : ''}
       ${deptCodes.length === 1 ? `<select id="bstage"><option value="">Change status…</option>${opts(S.list(deptCodes[0], tab === 'deals' ? 'deal' : 'lead').map((s) => s.key))}</select>` : '<span class="faint" style="font-size:12px">Pick one department to change status in bulk</span>'}
       ${canEmail() ? '<button class="btn small" id="bmail">Email</button>' : ''}${canExport() ? '<button class="btn small" id="bexp">Export</button>' : ''}</div>
-    ${shown.length ? `<div class="tablewrap ldt"><table><thead><tr><th class="ck"><input type="checkbox" id="lall" aria-label="Select all"></th>${cols.map(th).join('')}</tr>
+    ${shown.length ? `<div class="tablewrap ldt free"><table><thead><tr><th class="ck"><input type="checkbox" id="lall" aria-label="Select all"></th>${cols.map(th).join('')}</tr>
       <tr class="cf"><th></th>${cols.map(([key]) => `<th>${colFilter(key)}</th>`).join('')}</tr></thead><tbody>
       ${shown.map((l) => `<tr class="click tone-${leadTone(l) || 'none'}" data-lead="${l.id}"><td class="ck" onclick="event.stopPropagation()"><input type="checkbox" class="lchk" value="${l.id}" aria-label="Select"></td>${cols.map(([key]) => td(l, key)).join('')}</tr>`).join('')}
-      </tbody></table></div>${total > LF.limit ? `<div class="row morerow" style="justify-content:center;margin-top:10px"><button class="btn" id="more">Show more (${nfmt(total - LF.limit)} left)</button></div>` : ''}
-      <div class="cards-m">${shown.map((l) => `<button class="glass lcard tone-${leadTone(l) || 'none'}" data-lead="${l.id}"><span class="row between"><b>${esc(tab === 'deals' ? L.company(l) || l.name : l.name)}</b>${stageChip(l)}</span><span class="s">${funnelChip(l.funnel)} ${esc(tab === 'deals' ? inr(l.value) + (l.expected_close ? ' · closes ' + fmtDate(l.expected_close) : '') : L.company(l) || l.phone || '')} · ${esc(L.ownerLabel(l))}</span>${L.latestRemark(l) ? `<span class="s rem">${esc(L.latestRemark(l))}</span>` : ''}</button>`).join('')}</div>`
-      : `<div class="tablewrap ldt"><table><thead><tr><th class="ck"></th>${cols.map(th).join('')}</tr><tr class="cf"><th></th>${cols.map(([key]) => `<th>${colFilter(key)}</th>`).join('')}</tr></thead></table></div>${empty(`No ${tab} match`, tab === 'deals' ? 'Convert a lead to a deal from its record, or change the filters.' : 'Change the filters or add a new lead.')}`}`;
+      </tbody></table></div>${pager(total, pages, from, shown.length)}
+      <div class="cards-m">${shown.map((l) => `<button class="glass lcard tone-${leadTone(l) || 'none'}" data-lead="${l.id}">${L.company(l) && tab !== 'deals' ? `<span class="s org">${esc(L.company(l))}</span>` : ''}<span class="row between"><b>${esc(tab === 'deals' ? L.company(l) || l.name : l.name)}</b>${stageChip(l)}</span><span class="s">${funnelChip(l.funnel)} ${esc(tab === 'deals' ? inr(l.value) + (l.expected_close ? ' · closes ' + fmtDate(l.expected_close) : '') : tab === 'followups' && l.next_followup_at ? 'next ' + fmtDT(l.next_followup_at) : l.phone || '')} · ${esc(L.ownerLabel(l))}</span>${L.latestRemark(l) ? `<span class="s rem">${esc(L.latestRemark(l))}</span>` : ''}</button>`).join('')}</div>`
+      : `<div class="tablewrap ldt free"><table><thead><tr><th class="ck"></th>${cols.map(th).join('')}</tr><tr class="cf"><th></th>${cols.map(([key]) => `<th>${colFilter(key)}</th>`).join('')}</tr></thead></table></div>${empty(`No ${tab} match`, tab === 'deals' ? 'Convert a lead to a deal from its record, or change the filters.' : 'Change the filters or add a new lead.')}`}`;
   const keepFocus = (sel0) => { const i = box.querySelector(sel0); if (i) { i.focus(); i.setSelectionRange?.(i.value.length, i.value.length); } };
-  box.querySelector('#lq').oninput = (e) => { LF.q = e.target.value; clearTimeout(ldList._t); ldList._t = setTimeout(() => { ldList(box, tab, rer); keepFocus('#lq'); }, 250); };
-  box.querySelectorAll('[data-state]').forEach((b) => (b.onclick = () => { LF.state = b.dataset.state; ldList(box, tab, rer); }));
+  box.querySelector('#lq').oninput = (e) => { LF.q = e.target.value; clearTimeout(ldList._t); ldList._t = setTimeout(() => { LF.page = 1; ldList(box, tab, rer); keepFocus('#lq'); }, 250); };
+  box.querySelectorAll('[data-state]').forEach((b) => (b.onclick = () => { LF.state = b.dataset.state; LF.page = 1; ldList(box, tab, rer); }));
   box.querySelector('#qx')?.addEventListener('click', () => { LF.quick = ''; ldList(box, tab, rer); });
-  box.querySelectorAll('[data-cf]').forEach((i) => { const k0 = i.dataset.cf; const apply = () => { LF.col[k0] = i.value; ldList(box, tab, rer); }; if (i.tagName === 'SELECT') i.onchange = apply; else i.oninput = () => { LF.col[k0] = i.value; clearTimeout(ldList._c); ldList._c = setTimeout(() => { ldList(box, tab, rer); keepFocus(`[data-cf="${k0}"]`); }, 300); }; i.onclick = (e) => e.stopPropagation(); });
+  box.querySelectorAll('[data-cf]').forEach((i) => { const k0 = i.dataset.cf; const apply = () => { LF.col[k0] = i.value; LF.page = 1; ldList(box, tab, rer); }; if (i.tagName === 'SELECT') i.onchange = apply; else i.oninput = () => { LF.col[k0] = i.value; clearTimeout(ldList._c); ldList._c = setTimeout(() => { LF.page = 1; ldList(box, tab, rer); keepFocus(`[data-cf="${k0}"]`); }, 300); }; i.onclick = (e) => e.stopPropagation(); });
   box.querySelectorAll('[data-sort]').forEach((t) => (t.onclick = () => { if (LF.sort === t.dataset.sort) LF.dir *= -1; else { LF.sort = t.dataset.sort; LF.dir = 1; } ldList(box, tab, rer); }));
-  box.querySelector('#more')?.addEventListener('click', () => { LF.limit += 200; ldList(box, tab, rer); });
+  box.querySelectorAll('[data-pg]').forEach((x) => (x.onclick = () => { LF.page = Number(x.dataset.pg); ldList(box, tab, rer); box.querySelector('.ldt')?.scrollIntoView({ block: 'nearest' }); }));
+  box.querySelectorAll('[data-per]').forEach((x) => (x.onclick = () => { LF.per = Number(x.dataset.per); LF.page = 1; try { localStorage.setItem('garuda-ld-per', LF.per); } catch (_) { /* no storage */ } ldList(box, tab, rer); }));
   const chosen = () => $$('.lchk:checked', box).map((c) => c.value);
   const upd = () => { const n = chosen().length; box.querySelector('#bulk').hidden = !n; box.querySelector('#bulkn').textContent = n + ' selected'; };
   box.querySelectorAll('.lchk').forEach((c) => (c.onchange = upd));
@@ -150,6 +161,14 @@ function ldList(box, tab, rer) {
   box.querySelector('#bmail')?.addEventListener('click', () => composeEmail({ leadIds: chosen(), title: 'Selected records' }));
   box.querySelector('#bexp')?.addEventListener('click', () => { const ids = new Set(chosen()); downloadCSV('garuda-' + tab, rows.filter((l) => ids.has(l.id)).map(leadCsv)); });
   bindLeadClicks(box);
+}
+/* rows per page and page numbers under the list */
+function pager(total, pages, from, n) {
+  const p = LF.page; const nums = [...new Set([1, p - 2, p - 1, p, p + 1, p + 2, pages])].filter((x) => x >= 1 && x <= pages).sort((a, b) => a - b);
+  const btns = []; nums.forEach((x, i) => { if (i && x - nums[i - 1] > 1) btns.push('<span class="pg-gap">…</span>'); btns.push(`<button class="pg ${x === p ? 'on' : ''}" data-pg="${x}" ${x === p ? 'aria-current="page"' : ''}>${nfmt(x)}</button>`); });
+  return `<div class="pager"><div class="pg-per"><span class="faint">Rows per page</span><div class="seg">${[20, 50, 100].map((k) => `<button data-per="${k}" aria-pressed="${LF.per === k}">${k}</button>`).join('')}</div></div>
+    <span class="faint pg-of">${total ? `${nfmt(from + 1)}–${nfmt(from + n)} of ${nfmt(total)} · page ${nfmt(p)} of ${nfmt(pages)}` : ''}</span>
+    ${pages > 1 ? `<div class="pg-nums"><button class="pg" data-pg="${Math.max(1, p - 1)}" ${p === 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>${btns.join('')}<button class="pg" data-pg="${Math.min(pages, p + 1)}" ${p === pages ? 'disabled' : ''} aria-label="Next page">›</button></div>` : ''}</div>`;
 }
 const lossReasons = (code) => (dept(code).loss_reasons?.length ? dept(code).loss_reasons : DB.settings.lost_reasons || ['Other']);
 const leadCsv = (l) => ({ lead_no: l.lead_no, sheet_id: l.ref_id || '', department: l.funnel, type: l.is_deal ? 'Deal' : 'Lead', name: l.name, company: L.company(l), status: l.stage, email: l.email, phone: l.phone, assigned_to: L.ownerLabel(l), lead_date: (l.enquiry_date || l.created_at || '').slice(0, 10), value_ex_gst: l.value, closure_date: l.expected_close || '', latest_remark: L.latestRemark(l), source: l.source, course: l.course || l.sub_category || '', won_at: l.won_at || '', lost_reason: l.lost_reason || '' });
@@ -312,7 +331,7 @@ function openLead(id) {
     const l = DB.get('leads', id); if (!l) { ctx.close(); return toast('Record not found', true); }
     const st = L.st(l); const prod = L.product(l); const inst = L.inst(l); const camp = DB.get('mkt_campaigns', l.mkt_campaign_id);
     ctx.el.innerHTML = `<div class="drawer-head"><div style="min-width:0"><div class="row">${funnelChip(l.funnel)}<span class="chip ${l.is_deal ? 'acc' : ''}">${l.is_deal ? 'Deal' : 'Lead'}</span><span class="faint mono">${esc(l.ref_id || l.lead_no)}</span>${tempChip(l.temperature)}${scoreBadge(l)}</div>
-        <h2 style="margin-top:6px">${esc(L.title(l))}</h2><div class="faint" style="font-size:12.5px">${l.is_deal ? `${inr(l.value)} ex-GST · closes ${l.expected_close ? fmtDate(l.expected_close) : '—'} · ` : ''}${esc(prod?.name || l.course || l.sub_category || '')} · ${esc(DB.pname(l.owner))} · ${daysAgo(l.created_at)} days old</div></div>
+        ${L.company(l) && !l.is_deal ? `<div class="rec-org">${svg('inst')} ${esc(L.company(l))}</div>` : ''}<h2 style="margin-top:${L.company(l) && !l.is_deal ? 2 : 6}px">${esc(l.is_deal ? L.title(l) : l.name)}</h2><div class="faint" style="font-size:12.5px">${l.is_deal ? `${inr(l.value)} ex-GST · closes ${l.expected_close ? fmtDate(l.expected_close) : '—'} · ` : ''}${esc(prod?.name || l.course || l.sub_category || '')} · ${esc(DB.pname(l.owner))} · ${daysAgo(l.created_at)} days old</div></div>
         <button class="btn ghost small" data-close aria-label="Close">${svg('x')}</button></div>
       <div class="dbar row"><label class="faint" for="dstage" style="font-size:12px">${l.is_deal ? 'Stage' : 'Status'}</label><select id="dstage" style="width:auto">${S.list(l.funnel, l.is_deal ? 'deal' : 'lead').map((s) => `<option ${s.key === l.stage ? 'selected' : ''}>${esc(s.key)}</option>`).join('')}</select>
         ${l.is_deal && !st.is_won && !st.is_lost ? `<span class="faint" style="font-size:12px">${st.prob}% win</span>` : ''}
@@ -406,10 +425,10 @@ function linkCampaignModal(l, after) {
 function tabOverview(l, el, ctx) {
   const isC = isOrgDept(l.funnel); const cl = courseList(l.funnel, isC ? l.sub_category : l.course);
   const facts = [['Sheet ID', l.ref_id], ['Enquiry date', l.enquiry_date && fmtDate(l.enquiry_date)], ['Allocated', l.allocated_date && fmtDate(l.allocated_date)], ['Owner (sheet)', !l.owner && l.owner_name ? l.owner_name + ' · no account yet' : ''],
-    ['Call attempts', l.call_attempts || ''], ['Priority score', l.priority_score ?? ''], ['Why this tier', l.tier_reason], ['Location / org', l.city || l.org], ['Collected to date', Number(l.collected_import) ? inrFull(l.collected_import) : ''], ['Pending PO', Number(l.pending_po) ? inrFull(l.pending_po) : ''], ['Last follow-up', l.last_followup && fmtDate(l.last_followup)]].filter(([, x]) => x !== '' && x != null && x !== false);
+    ['Call attempts', l.call_attempts || ''], ['Priority score', l.priority_score ?? ''], ['Why this tier', l.tier_reason], ['Location', l.city], ['Current status', l.latest_update && !isC ? l.latest_update : ''], ['Tier', l.campaign_tier], ['Audit', l.tier_source], ['Collected to date', Number(l.collected_import) ? inrFull(l.collected_import) : ''], ['Pending PO', Number(l.pending_po) ? inrFull(l.pending_po) : ''], ['Last follow-up', l.last_followup && fmtDate(l.last_followup)]].filter(([, x]) => x !== '' && x != null && x !== false);
   el.innerHTML = `${facts.length ? `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${facts.map(([k, x]) => `<span class="chip"><span class="faint">${k}:</span>&nbsp;${esc(x)}</span>`).join('')}</div>` : ''}
     ${l.latest_remark ? `<p style="margin:0 0 10px;font-size:13px"><span class="faint">Latest remark:</span> ${esc(l.latest_remark)}</p>` : ''}<div class="form">
-    ${fld('oname', isC ? 'Opportunity title' : 'Name', inp('oname', l.name))}
+    ${fld('oorg', 'Organisation / institution', inp('oorg', l.org || ''))}${fld('oname', isC ? 'Opportunity title' : 'Lead name', inp('oname', l.name))}
     ${fld('oinst', 'Account (company / institution)', `<select id="oinst">${opts(DB.t.institutions.map((i) => [i.id, i.name]), l.institution_id, 'None')}</select>`)}${!isC ? fld('ocity', 'City', pickSel('ocity', usedValues('city'), l.city)) : ''}
     ${isC ? fld('ocontact', 'Contact person', inp('ocontact', l.contact_name)) : ''}${isC ? fld('odesig', 'Designation', pickSel('odesig', [...CONTACT_ROLES, ...usedValues('designation')], l.designation)) : ''}
     ${fld('ophone', 'Phone', inp('ophone', l.phone, 'tel'))}${fld('oemail', 'Email', inp('oemail', l.email, 'email'))}
@@ -443,7 +462,7 @@ function tabOverview(l, el, ctx) {
   el.querySelector('#osave').onclick = () => guard(async () => {
     const disc = num(el, 'odisc'); if (disc !== Number(l.discount_pct) && (await discountBlocked(l, disc))) return;
     const p = DB.get('products', v(el, 'oprod'));
-    const patch = { name: v(el, 'oname'), institution_id: v(el, 'oinst') || null, phone: v(el, 'ophone'), email: v(el, 'oemail'), source: v(el, 'osrc'), mkt_campaign_id: v(el, 'ocamp') || null, temperature: v(el, 'otemp'), product_id: p?.id || null, qty: num(el, 'oqty') || 1, unit_price: num(el, 'ounit'), discount_pct: disc, gst_rate: p?.gst_rate ?? l.gst_rate, share_pct: p?.share_pct ?? l.share_pct, consent_email: v(el, 'oce'), consent_whatsapp: v(el, 'ocw'), notes: v(el, 'onotes') };
+    const patch = { org: (v(el, 'oorg') || '').trim(), name: v(el, 'oname'), institution_id: v(el, 'oinst') || null, phone: v(el, 'ophone'), email: v(el, 'oemail'), source: v(el, 'osrc'), mkt_campaign_id: v(el, 'ocamp') || null, temperature: v(el, 'otemp'), product_id: p?.id || null, qty: num(el, 'oqty') || 1, unit_price: num(el, 'ounit'), discount_pct: disc, gst_rate: p?.gst_rate ?? l.gst_rate, share_pct: p?.share_pct ?? l.share_pct, consent_email: v(el, 'oce'), consent_whatsapp: v(el, 'ocw'), notes: v(el, 'onotes') };
     if (!el.querySelector('#oowner').disabled && v(el, 'oowner')) patch.owner = v(el, 'oowner');
     if (l.is_deal) patch.expected_close = v(el, 'oclose') || null;
     patch.engagement = v(el, 'oeng') || '';

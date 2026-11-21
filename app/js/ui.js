@@ -160,9 +160,9 @@ const num = (root, id) => Number(v(root, id) || 0);
 const dtLocal = (iso) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
 const fromLocal = (s) => (s ? new Date(s).toISOString() : null);
 
-function kpi({ label, value, sub = '', color, drill, meter }) {
+function kpi({ label, value, sub = '', color, drill, meter, tone = '' }) {
   const tag = drill ? 'button' : 'div';
-  return `<${tag} class="glass kpi" ${drill ? `data-drill="${drill}" type="button"` : ''}>
+  return `<${tag} class="glass kpi ${tone ? 'k-' + tone : ''}" ${drill ? `data-drill="${drill}" type="button"` : ''}>
     <span class="l">${color ? `<i style="background:${color}"></i>` : ''}${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}
     ${meter !== undefined ? `<div class="meter ${meter >= 100 ? 'good' : meter >= 60 ? '' : 'warn'}"><i style="width:${clamp(meter, 0, 100)}%"></i></div>` : ''}
     ${drill ? '<span class="drill">See details →</span>' : ''}</${tag}>`;
@@ -171,27 +171,33 @@ function empty(title, text, action = '') { return `<div class="empty"><b>${title
 
 /* ---------- charts (inline SVG, one scale per chart) ---------- */
 function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
+let _gid = 0;
+/* a lighter and a deeper tone of one colour, for the liquid gradients */
+function shadeHex(hex, f) { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return hex; const n = parseInt(m[1], 16); const ch = [n >> 16, (n >> 8) & 255, n & 255].map((c) => Math.round(f > 0 ? c + (255 - c) * f : c * (1 + f))); return '#' + ch.map((c) => clamp(c, 0, 255).toString(16).padStart(2, '0')).join(''); }
+const liquidDef = (id, c) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shadeHex(c, 0.45)}"/><stop offset=".45" stop-color="${c}"/><stop offset="1" stop-color="${shadeHex(c, -0.28)}"/></linearGradient>`;
 function barChart({ labels, series, height = 220, fmt = inr, stacked = false, target }) {
-  const W = 720, H = height, padL = 56, padB = 26, padT = 14, padR = 8;
+  const W = 720, H = height, padL = 60, padB = 26, padT = 14, padR = 8;
   const totals = labels.map((_, i) => (stacked ? sum(series, (s) => s.values[i]) : Math.max(...series.map((s) => s.values[i] || 0))));
   const max = niceMax(Math.max(...totals, ...(target ? target : [0]), 1));
   const iw = W - padL - padR, ih = H - padT - padB, bw = iw / labels.length;
   const y = (val) => padT + ih - (val / max) * ih;
-  let g = '';
+  const ids = series.map(() => 'lq' + ++_gid);
+  let g = `<defs>${series.map((s, k) => liquidDef(ids[k], s.color)).join('')}<linearGradient id="${ids[0]}g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".0"/><stop offset=".5" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>`;
   for (let k = 0; k <= 4; k++) { const val = (max * k) / 4; g += `<line x1="${padL}" x2="${W - padR}" y1="${y(val)}" y2="${y(val)}" stroke="var(--hair)"/><text x="${padL - 6}" y="${y(val) + 4}" text-anchor="end">${(fmt === inr ? inrShort : fmt)(val)}</text>`; }
+  const bar = (x, yy, w, h, k, tip) => (h > 0 ? `<g><rect x="${x}" y="${yy}" width="${w}" height="${h}" rx="${Math.min(5, w / 3)}" fill="url(#${ids[k]})"><title>${tip}</title></rect><rect x="${x + w * 0.12}" y="${yy + 1.5}" width="${w * 0.32}" height="${Math.max(0, h - 3)}" rx="${Math.min(4, w / 5)}" fill="url(#${ids[0]}g)" pointer-events="none"/></g>` : '');
   labels.forEach((lab, i) => {
     const x0 = padL + i * bw;
     if (stacked) {
       let acc = 0;
-      series.forEach((s) => { const val = s.values[i] || 0; if (val > 0) g += `<rect x="${x0 + bw * 0.18}" y="${y(acc + val)}" width="${bw * 0.64}" height="${Math.max(0, y(acc) - y(acc + val))}" rx="3" fill="${s.color}"><title>${esc(lab)} · ${esc(s.name)}: ${fmt(val)}</title></rect>`; acc += val; });
+      series.forEach((s, k) => { const val = s.values[i] || 0; if (val > 0) g += bar(x0 + bw * 0.18, y(acc + val), bw * 0.64, Math.max(0, y(acc) - y(acc + val)), k, `${esc(lab)} · ${esc(s.name)}: ${fmt(val)}`); acc += val; });
     } else {
       const n = series.length, w = (bw * 0.7) / n;
-      series.forEach((s, k) => { const val = s.values[i] || 0; g += `<rect x="${x0 + bw * 0.15 + k * w}" y="${y(val)}" width="${Math.max(1, w - 2)}" height="${Math.max(0, padT + ih - y(val))}" rx="3" fill="${s.color}"><title>${esc(lab)} · ${esc(s.name)}: ${fmt(val)}</title></rect>`; });
+      series.forEach((s, k) => { const val = s.values[i] || 0; g += bar(x0 + bw * 0.15 + k * w, y(val), Math.max(1, w - 2), Math.max(0, padT + ih - y(val)), k, `${esc(lab)} · ${esc(s.name)}: ${fmt(val)}`); });
     }
-    if (target && target[i]) g += `<line x1="${x0 + bw * 0.1}" x2="${x0 + bw * 0.9}" y1="${y(target[i])}" y2="${y(target[i])}" stroke="var(--ink2)" stroke-width="1.6" stroke-dasharray="5 4"><title>Target ${fmt(target[i])}</title></line>`;
+    if (target && target[i]) g += `<line x1="${x0 + bw * 0.08}" x2="${x0 + bw * 0.92}" y1="${y(target[i])}" y2="${y(target[i])}" stroke="var(--ink2)" stroke-width="1.6" stroke-dasharray="5 4"><title>Target ${fmt(target[i])}</title></line>`;
     g += `<text x="${x0 + bw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
   });
-  const legend = `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}${target ? '<span><i class="tgt"></i>Target</span>' : ''}</div>`;
+  const legend = `<div class="legend">${series.map((s) => `<span><i style="background:linear-gradient(180deg,${shadeHex(s.color, 0.45)},${s.color} 45%,${shadeHex(s.color, -0.28)})"></i>${esc(s.name)}</span>`).join('')}${target ? '<span><i class="tgt"></i>Target</span>' : ''}</div>`;
   return `<div class="chart">${legend}<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg></div>`;
 }
 function funnelBars(rows, { onclick = 'stage' } = {}) {
@@ -224,7 +230,7 @@ const canRevenue = () => (!isMember() && !hideSales()) || isFinance();
 const NAV = [
   ['Workspace', [['chat', 'Garuda Chat', 'chat', () => true]]],
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
-  ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()]]],
+  ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
   ['Execution', [['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
 ];

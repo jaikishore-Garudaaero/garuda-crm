@@ -105,6 +105,35 @@ function handoverTable(all, put) {
 const kcard = (key, label, value, sub, tone = '') => `<button class="glass kpi kcard ${tone}" data-dk="${esc(key)}" type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}<span class="drill">See details →</span></button>`;
 const bindGo = (el) => el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
 
+/* ---------- the executive band: the year's target, what is booked and collected, the gap, the forecast, leads and deals ---------- */
+function execBand(u) {
+  const fy = TG.fy(); const R = TG.per('fy', fy); const now = new Date(); const X = tva(u, R);
+  const ls = M.leads(); const open = ls.filter(L.inPipe); const wtd = sum(open, (l) => (l.value * L.prob(l)) / 100);
+  const gone = Math.max(0.5, (now - R.from) / (30.44 * 864e5)); const left = Math.max(0, (R.to - now) / (30.44 * 864e5));
+  const acad = TG.depts(u).includes('RPTO') ? TG.achieved({ ...u, dept: 'RPTO' }, R) : 0; const runRate = (acad / gone) * left;
+  const fc = X.a + wtd + runRate; const cov = X.t ? Math.round((fc / X.t) * 100) : null;
+  const leadsOpen = ls.filter((l) => !l.is_deal && L.open(l)); const fresh = ls.filter((l) => !l.is_deal && M.inR(leadDate(l), TG.per('month')));
+  const wonFy = ls.filter((l) => L.won(l) && M.inR(l.won_at, R));
+  const perMonth = X.gap / Math.max(left, 0.25); const days = TG.workDaysLeft(R);
+  const D = new Map([['x-open', { title: 'Open deals', rows: open }], ['x-leads', { title: 'Open leads', rows: leadsOpen }], ['x-won', { title: 'Won · ' + TG.label(fy), rows: wonFy }]]);
+  const card = (label, value, sub, tone = '', go0 = '', dk = '') => `<${go0 || dk ? 'button' : 'div'} class="glass kpi xk ${tone ? 'k-' + tone : ''}" ${go0 ? `data-go="${go0}"` : ''} ${dk ? `data-dk="${dk}"` : ''} type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}</${go0 || dk ? 'button' : 'div'}>`;
+  const html = `<section class="exec-band" aria-label="${TG.label(fy)} at a glance">
+    <div class="xb-head"><h2>${TG.label(fy)} at a glance</h2><span class="faint">${Math.round(TG.elapsed(R) * 100)}% of the year gone · ${nfmt(days)} working days left</span></div>
+    <div class="xb-grid">
+      ${card('Yearly target', X.t ? inr(X.t) : '—', X.t ? `${inr(X.due)} due by today at an even pace` : 'Set it in Settings → Sales targets', '', 'revenue/targets')}
+      ${card('Achieved (booked)', inr(X.a), X.t ? `<b>${X.p}%</b> of target · collected + balance due` : 'collected + balance due', X.p == null ? '' : toneFor(X.p, TG.elapsed(R)), 'revenue')}
+      ${card('Collected so far', inr(X.c), 'money received', '', 'revenue/ledger')}
+      ${card('Balance due', inr(X.d), 'sale done, payment to come', X.d ? 'warn' : '', 'collections')}
+      ${card(X.lag > 0.5 ? 'Behind even pace' : 'Ahead of pace', X.t ? inr(Math.abs(X.lag)) : '—', X.t ? `${inr(X.gap)} still to book` : '', X.t ? (X.lag > 0.5 ? 'bad' : 'good') : '', 'revenue')}
+      ${card('Needed a month from now', X.gap ? inr(perMonth) : '—', X.gap ? `${inr(X.gap / days)} a working day` : '', '', 'revenue')}
+      ${card('Forecast by 31 March', inr(fc), cov == null ? 'achieved + weighted pipeline + Academy run-rate' : `<b>${cov}%</b> of target · ${inr(wtd)} weighted pipeline`, cov == null ? '' : cov >= 100 ? 'good' : cov >= 70 ? 'warn' : 'bad', 'deals')}
+      ${card('Open deals', nfmt(open.length), `${inr(sum(open, (l) => l.value))} in value`, '', '', 'x-open')}
+      ${card('Open leads', nfmt(leadsOpen.length), `${nfmt(fresh.length)} new this month`, '', '', 'x-leads')}
+      ${card('Won this year', nfmt(wonFy.length), `${inr(sum(wonFy, (l) => l.value))} in deal value`, wonFy.length ? 'good' : '', '', 'x-won')}
+    </div></section>`;
+  return { html, D };
+}
+
 /* ================= Command Centre: the CEO view in pictures; every card follows the period and team in the filter ================= */
 VIEWS.command = {
   title: 'Command Centre', sub: 'Target, revenue, spend, pipeline, teams and delivery at a glance.',
@@ -129,7 +158,9 @@ VIEWS.command = {
     const teams = codes.map((code) => { const du = { dept: code }; const t = TG.inRange(du, P), a = TG.achieved(du, P); return { code, t, a, p: t ? Math.round((a / t) * 100) : null }; });
     const tmax = Math.max(1, ...teams.map((x) => Math.max(x.t, x.a)));
     const fun = [['Leads', inP.length], ['Deals', dl.length], ['Won', won.length]]; const fmax = Math.max(1, ...fun.map((x) => x[1]));
-    el.innerHTML = `${welcomeHTML()}${filterBar({ person: false })}
+    const xb = execBand(u);
+    el.innerHTML = `${welcomeHTML()}${filterBar({ person: false })}${xb.html}
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Target vs actual</span> by process · ${TG.label(TG.fy())}</h2><button class="btn small ghost" data-go="revenue">Full breakup →</button></div>${tvaTable(['Process'], codes.map((code) => ({ cells: `<td>${deptChip(code)} ${esc(dept(code).name)}</td>`, x: tva({ dept: code }, TG.per('fy')) })), TG.per('fy'), codes.length > 1 ? { cells: '<td>Total</td>', x: tva(u, TG.per('fy')) } : null)}</section>
       <div class="bento ceo">
         <section class="glass bc b-tgt"><div class="bc-h"><span class="gtag green">${svg('target')} Target</span><span class="faint">${esc(P.label)}</span></div>${milestoneTrack(u, P)}</section>
         <section class="glass bc b-rings"><div class="rings">
@@ -150,7 +181,7 @@ VIEWS.command = {
         <section class="glass bc b-del" data-go="projects"><div class="bc-h"><span class="gtag amber">Delivery</span><span class="faint">${esc(r.label)}</span></div>
           <div class="rings">${ring(msDue.length ? pct(msDone.length, msDue.length) : 0, msDue.length ? `${msDone.length}/${msDue.length}` : '—', 'Milestones', '#f0a31c')}${ring(escR.length ? pct(escOk.length, escR.length) : 0, escR.length ? `${escOk.length}/${escR.length}` : '—', 'Escalations in time', '#3a8ae0')}${ring(vis.length ? pct(visDone.length, vis.length) : 0, vis.length ? `${visDone.length}/${vis.length}` : '—', 'Visits done', '#2cc3b5')}${ring(tk.length ? pct(tkDone.length, tk.length) : 0, tk.length ? `${tkDone.length}/${tk.length}` : '—', 'Tasks done', '#7b6cf0')}</div></section>
       </div>`;
-    bindFilters(el, () => this.render(el));
+    bindFilters(el, () => this.render(el)); bindDrills(el, xb.D);
     el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = (e) => { if (b.classList.contains('bc') && e.target.closest('[data-go]') !== b) return; e.stopPropagation(); const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
     loadWeather(el.querySelector('#wx'));
   },

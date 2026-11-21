@@ -3,20 +3,21 @@
 
 let revTab = 'overview', ledQ = '';
 const REV_FIXED = ['overview', 'targets', 'total', 'ledger'];
-const entryOk = (e) => ST.person === 'all' || (e.lead_id && DB.get('leads', e.lead_id)?.owner === ST.person);
+const entryOk = (e) => ST.person === 'all' || TG.weight(e, ST.person) > 0;
 function revFigures(code, r) {
   const ok = (c) => !code || c === code;
   const ent = DB.t.revenue_entries.filter((e) => ok(e.department) && entryOk(e));
   const won = M.leads().filter((l) => ok(l.funnel) && L.won(l));
   const wonR = won.filter((l) => M.inR(l.won_at, r));
   const entR = ent.filter((e) => M.inR(e.month, r));
-  const collected = sum(entR.filter((e) => e.status === 'Collected'), (e) => e.amount);
-  const booked = sum(wonR, (l) => l.value) + sum(entR.filter((e) => !e.lead_id), (e) => e.amount);
+  const pu = { dept: code || ST.dept, pid: ST.person === 'all' ? null : ST.person };
+  const collected = TG.collected(pu, r);
+  const booked = TG.achieved(pu, r);
   const recvLeads = won.filter((l) => L.due(l) > 0.5);
   const pendingPO = ent.filter((e) => e.status === 'Pending PO' && !e.lead_id);
   const pending = sum(recvLeads, L.due) + sum(pendingPO, (e) => e.amount);
   const months = new Set(); for (let d = new Date(r.from.getFullYear(), r.from.getMonth(), 1); d < r.to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) months.add(localDate(d).slice(0, 7));
-  const target = ST.person === 'all' ? sum(DB.t.revenue_targets.filter((t) => ok(t.dept) && months.has(String(t.month).slice(0, 7))), (t) => t.amount) : 0;
+  const target = TG.inRange(pu, r);
   return { ent, entR, won, wonR, collected, booked, pending, recvLeads, pendingPO, target };
 }
 VIEWS.revenue = {
@@ -77,19 +78,21 @@ function revDept(b, code) {
 }
 function revLedger(b, rer) {
   const r = curRange();
-  const rows = DB.t.revenue_entries.filter((e) => M.inR(e.month, r) && entryOk(e) && (!ledQ || `${e.client} ${e.segment} ${e.opp_ref} ${e.note} ${e.department}`.toLowerCase().includes(ledQ.toLowerCase())))
+  const rows = DB.t.revenue_entries.filter((e) => M.inR(e.month, r) && M.deptOk(e.department) && entryOk(e) && (!ledQ || `${e.client} ${e.segment} ${e.opp_ref} ${e.note} ${e.department} ${e.owner_label} ${DB.pname(e.owner)}`.toLowerCase().includes(ledQ.toLowerCase())))
     .sort((a, c) => String(c.month).localeCompare(String(a.month)) || c.amount - a.amount);
   const claims = isFinance() ? DB.t.payments.filter((p) => p.status === 'Claimed').sort((a, c) => String(a.claimed_at).localeCompare(String(c.claimed_at))) : [];
   const shares = M.leads().filter((l) => L.won(l) && Number(l.share_pct) < 100);
   b.innerHTML = `${isFinance() ? `<section class="glass panel"><div class="panel-head"><h2>Verification queue (${claims.length})</h2><span class="sub">Only verified payments count as collected and reach the ledger</span></div>${claims.length ? `<div class="tablewrap"><table><thead><tr><th>Claimed</th><th>Deal</th><th>By</th><th>Paid on</th><th>Mode / reference</th><th class="n">Amount incl. GST</th><th></th></tr></thead><tbody>${claims.map((p) => { const l = DB.get('leads', p.lead_id) || {}; return `<tr><td>${fmtDT(p.claimed_at)}</td><td><a href="#" data-lead="${l.id}">${esc(l.name || '')}</a><div class="s">${deptChip(l.funnel || '')} ${esc(l.lead_no || '')}</div></td><td>${esc(DB.pname(p.claimed_by))}</td><td>${fmtDate(p.paid_on)}</td><td>${esc(p.mode)} ${esc(p.reference)}</td><td class="n">${inrFull(p.amount)}</td><td class="n"><button class="btn small good" data-ver="${p.id}">Verify</button> <button class="btn small danger" data-rej="${p.id}">Reject</button></td></tr>`; }).join('')}</tbody></table></div>` : '<p class="faint">Nothing waiting.</p>'}</section>` : ''}
     <section class="glass panel"><div class="panel-head"><h2>Ledger · ${r.label}</h2><span class="sub">Every amount ex-GST. Verified payments are added automatically.</span>
       <div class="filters"><input type="search" id="lq" placeholder="Search client, segment, Opp ID" value="${esc(ledQ)}">${isFinance() ? `<button class="btn small" id="lnew">${svg('plus')} Entry</button><button class="btn small" id="anew">${svg('plus')} Admissions</button>` : ''}${canExport() ? '<button class="btn small" id="lexp">Export</button>' : ''}</div></div>
-      <div class="tablewrap tall"><table><thead><tr><th>Month</th><th>Department</th><th>Segment</th><th>Client</th><th>Status</th><th>Source</th><th class="n">Amount</th>${isFinance() ? '<th></th>' : ''}</tr></thead><tbody>
-      ${rows.map((e) => `<tr><td>${fmtMonth(e.month)}</td><td>${deptChip(e.department)}</td><td>${esc(e.segment)}</td><td>${e.lead_id ? `<a href="#" data-lead="${e.lead_id}">${esc(e.client)}</a>` : esc(e.client)}${e.opp_ref ? ` <span class="faint">${esc(e.opp_ref)}</span>` : ''}</td><td>${e.status === 'Collected' ? '<span class="chip good">Collected</span>' : '<span class="chip warn">Pending PO</span>'}</td><td>${e.source === 'payment' ? 'CRM payment' : e.source === 'import' ? 'Sales sheet' : 'Manual'}</td><td class="n">${inrFull(e.amount)}</td>${isFinance() ? `<td>${e.source === 'payment' ? '' : `<button class="btn ghost small" data-led="${e.id}">Edit</button>`}</td>` : ''}</tr>`).join('') || `<tr><td colspan="8">${empty('No entries', 'Nothing in this period.')}</td></tr>`}
-      <tr class="tot"><td colspan="6">Collected · ${rows.filter((e) => e.status === 'Collected').length} entries</td><td class="n">${inrFull(sum(rows.filter((e) => e.status === 'Collected'), (e) => e.amount))}</td>${isFinance() ? '<td></td>' : ''}</tr></tbody></table></div></section>
+      <div class="tablewrap tall"><table><thead><tr><th>Month</th><th>Process</th><th>Product</th><th>Client</th><th>Owner</th><th>Status</th><th>Source</th><th class="n">Amount</th>${isFinance() ? '<th></th>' : ''}</tr></thead><tbody>
+      ${rows.map((e) => `<tr><td>${e.paid_on ? fmtDate(e.paid_on) : fmtMonth(e.month)}</td><td>${deptChip(e.department)}</td><td>${esc(e.segment)}</td><td>${e.lead_id ? `<a href="#" data-lead="${e.lead_id}">${esc(e.client)}</a>` : esc(e.client)}${e.opp_ref ? ` <span class="faint">${esc(e.opp_ref)}</span>` : ''}</td><td>${e.owner ? esc(DB.pname(e.owner)) : e.owner_label ? `<span class="faint">${esc(e.owner_label)}</span>` : '<span class="faint">—</span>'}</td><td>${e.status === 'Collected' ? '<span class="chip good">Collected</span>' : `<span class="chip warn" title="${esc(e.note)}">Balance due</span>`}</td><td>${e.source === 'payment' ? 'CRM payment' : e.source === 'import' ? (String(e.import_key).startsWith('rsf|') ? 'Revenue So Far' : 'Sales sheet') : 'Manual'}</td><td class="n">${inrFull(e.amount)}</td>${isFinance() ? `<td>${e.source === 'payment' ? '' : `<button class="btn ghost small" data-led="${e.id}">Edit</button>`}</td>` : ''}</tr>`).join('') || `<tr><td colspan="9">${empty('No entries', 'Nothing in this period.')}</td></tr>`}
+      <tr class="tot"><td colspan="7">Collected · ${rows.filter((e) => e.status === 'Collected').length} lines</td><td class="n">${inrFull(sum(rows.filter((e) => e.status === 'Collected'), (e) => e.amount))}</td>${isFinance() ? '<td></td>' : ''}</tr>
+      <tr class="tot"><td colspan="7">Balance due · ${rows.filter((e) => e.status !== 'Collected').length} lines</td><td class="n">${inrFull(sum(rows.filter((e) => e.status !== 'Collected'), (e) => e.amount))}</td>${isFinance() ? '<td></td>' : ''}</tr>
+      <tr class="tot"><td colspan="7">Total booked</td><td class="n"><b>${inrFull(sum(rows, (e) => e.amount))}</b></td>${isFinance() ? '<td></td>' : ''}</tr></tbody></table></div></section>
     <section class="glass panel"><div class="panel-head"><h2>Revenue-share settlement</h2><span class="sub">Won deals where Garuda's share is below 100%</span></div>${shares.length ? `<div class="tablewrap"><table><thead><tr><th>Deal</th><th class="n">Value</th><th class="n">Garuda share</th><th class="n">Garuda amount</th><th class="n">Partner amount</th><th class="n">Collected</th></tr></thead><tbody>${shares.map((l) => `<tr class="click" data-lead="${l.id}"><td>${esc(L.title(l))}<div class="s">${deptChip(l.funnel)}</div></td><td class="n">${inr(l.value)}</td><td class="n">${l.share_pct}%</td><td class="n">${inr((l.value * l.share_pct) / 100)}</td><td class="n">${inr((l.value * (100 - l.share_pct)) / 100)}</td><td class="n">${inr(L.paidEx(l))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="faint">No revenue-share deals.</p>'}</section>`;
   const q = b.querySelector('#lq'); q.oninput = () => { ledQ = q.value; clearTimeout(revLedger._t); revLedger._t = setTimeout(() => { revLedger(b, rer); const n = b.querySelector('#lq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
-  b.querySelector('#lexp')?.addEventListener('click', () => downloadCSV('garuda-revenue-ledger', rows.map((e) => ({ month: e.month, department: e.department, channel: e.channel, segment: e.segment, client: e.client, status: e.status, amount_ex_gst: e.amount, opp_id: e.opp_ref, source: e.source, note: e.note }))));
+  b.querySelector('#lexp')?.addEventListener('click', () => downloadCSV('garuda-revenue-ledger', rows.map((e) => ({ month: e.month, paid_on: e.paid_on || '', process: e.department, product: e.segment, client: e.client, owner: e.owner ? DB.pname(e.owner) : e.owner_label, status: e.status === 'Collected' ? 'Collected' : 'Balance due', amount_ex_gst: e.amount, opp_id: e.opp_ref, source: e.source, note: e.note }))));
   b.querySelector('#lnew')?.addEventListener('click', () => revenueModal({}, rer));
   b.querySelector('#anew')?.addEventListener('click', () => admissionModal(rer));
   b.querySelectorAll('[data-led]').forEach((x) => (x.onclick = () => revenueModal(DB.get('revenue_entries', x.dataset.led), rer)));
@@ -101,7 +104,7 @@ function revenueModal(e = {}, after) {
   const m = openModal({ title: e.id ? 'Edit revenue entry' : 'New revenue entry', width: 680,
     body: `<div class="form">${fld('rm', 'Month', inp('rm', (e.month || localDate(new Date())).slice(0, 7), 'month'))}${fld('rd', 'Department', sel('rd', DEPTS(true).map((d) => [d.code, d.name]), d0))}
       ${fld('rc', 'Channel', sel('rc', [...new Set(['Direct', 'Partner', 'B2B (PO)', 'B2B', 'Academy (direct)', 'Partner centre', e.channel].filter(Boolean))], e.channel || 'Direct'))}${fld('rs', 'Segment', '<select id="rs"></select>')}
-      ${fld('rcl', 'Client', inp('rcl', e.client || ''), 'full')}${fld('ra', 'Amount (₹, ex-GST)', inp('ra', e.amount || '', 'number', 'min="0" step="1"'))}${fld('rst', 'Status', sel('rst', ['Collected', 'Pending PO'], e.status || 'Collected'))}
+      ${fld('rcl', 'Client', inp('rcl', e.client || ''), 'full')}${fld('ra', 'Amount (₹, ex-GST)', inp('ra', e.amount || '', 'number', 'min="0" step="1"'))}${fld('rst', 'Status', sel('rst', [['Collected', 'Collected'], ['Pending PO', 'Balance due']], e.status || 'Collected'))}${fld('rpd', 'Paid on (optional)', inp('rpd', e.paid_on || '', 'date'))}${fld('row', 'Owner', sel('row', assignablePeople().map((p) => [p.id, p.full_name]), e.owner || '', 'Not assigned'))}
       ${fld('ro', 'Opp / sheet ID (optional)', inp('ro', e.opp_ref || ''))}${fld('rn', 'Note', inp('rn', e.note || ''))}</div>`,
     foot: `${e.id ? '<button class="btn danger" id="rdel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-c>Cancel</button><button class="btn primary" id="rsave">Save</button>` });
   const segs = () => { const sg = dept(v(m.el, 'rd')).segments || []; m.el.querySelector('#rs').innerHTML = opts([...new Set([...sg, e.segment, 'Other'].filter(Boolean))], e.segment); };
@@ -111,7 +114,7 @@ function revenueModal(e = {}, after) {
     if (!v(m.el, 'rm')) throw new Error('Choose the month.');
     const opp = (v(m.el, 'ro') || '').trim();
     const lead = opp ? DB.t.leads.find((l) => l.ref_id === opp || l.lead_no === opp) : null;
-    const row = { month: v(m.el, 'rm') + '-01', department: v(m.el, 'rd'), channel: v(m.el, 'rc'), segment: v(m.el, 'rs'), client: (v(m.el, 'rcl') || '').trim(), amount: amt, status: v(m.el, 'rst'), opp_ref: opp, lead_id: lead?.id || e.lead_id || null, note: (v(m.el, 'rn') || '').trim() };
+    const row = { month: v(m.el, 'rm') + '-01', department: v(m.el, 'rd'), channel: v(m.el, 'rc'), segment: v(m.el, 'rs'), client: (v(m.el, 'rcl') || '').trim(), amount: amt, status: v(m.el, 'rst'), opp_ref: opp, lead_id: lead?.id || e.lead_id || null, note: (v(m.el, 'rn') || '').trim(), paid_on: v(m.el, 'rpd') || null, owner: v(m.el, 'row') || null };
     if (e.id) await DB.update('revenue_entries', e.id, row); else await DB.insert('revenue_entries', { ...row, source: 'manual' });
     m.close(); after?.();
   }, 'Saved');

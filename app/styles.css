@@ -1993,3 +1993,63 @@ body::after{background:
 .s.warn{color:var(--t-warn)}
 b.bad{color:var(--t-bad)}
 @media (max-width:560px){.trow{grid-template-columns:110px minmax(0,1fr) 54px}}
+
+/* ===== v5.6 · executive band, target vs actual, liquid bars, pager, organisation first ===== */
+.exec-band{display:flex;flex-direction:column;gap:12px}
+.xb-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:0 4px}
+.xb-head h2{margin:0;font-family:var(--f-display);font-size:19px;letter-spacing:-.01em}
+.xb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:12px}
+.kpi.xk{min-height:112px;justify-content:space-between;cursor:default;font:inherit;position:relative;overflow:hidden}
+button.kpi.xk{cursor:pointer}
+button.kpi.xk:hover{transform:translateY(-2px);box-shadow:0 14px 34px -18px rgba(10,40,90,.45)}
+.kpi.xk .v{font-size:24px;line-height:1.1;overflow-wrap:anywhere}
+.kpi.xk .v small{font-size:13px;font-weight:600;color:var(--ink3);margin-left:2px}
+.kpi.xk .s b{color:var(--ink)}
+.kpi.xk::before,.kpi.exec-k::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--brand-line);opacity:.0}
+.kpi.k-good::before,.kpi.k-warn::before,.kpi.k-bad::before,.kpi.k-info::before{opacity:1}
+.kpi.k-good::before{background:var(--c-green)}.kpi.k-warn::before{background:var(--c-amber)}.kpi.k-bad::before{background:var(--c-red)}.kpi.k-info::before{background:var(--c-blue)}
+.kpi.k-bad .v{color:var(--t-bad)}.kpi.k-good .v{color:var(--t-good)}
+.kpi{position:relative}
+.kpi:not(.xk).k-good::before,.kpi:not(.xk).k-warn::before,.kpi:not(.xk).k-bad::before,.kpi:not(.xk).k-info::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0}
+.kpis.exec{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+.kpis.exec .kpi .v{font-size:23px;overflow-wrap:anywhere}
+.tgbar .seg.big button{padding:8px 14px}
+/* target against achieved tables */
+table.tva td,table.tva th{white-space:nowrap}
+table.tva td:first-child{white-space:normal;min-width:150px}
+table.tva .pcol{width:120px;min-width:110px}
+table.tva .pbar{display:block;margin:0}
+table.tva .bad,table.mtab .bad{color:var(--t-bad);font-weight:600}
+table.tva .good,table.mtab .good{color:var(--t-good);font-weight:600}
+table.mtab tr.cur td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+table.mtab tr.future td{color:var(--ink3)}
+.mt-none{margin:0;font-size:12.5px}
+.mt-pc.mute{color:var(--ink3)}
+/* liquid fills: a glossy top and a deeper base on every bar, whatever its colour */
+.hbar i,.tt i,.tbar .ta,.funnel .bar i,.tiers .bar i,.pbar i,.meter i,.mt-fill,.segbar i,.vf::before{background-image:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.12) 42%,rgba(0,0,0,0) 58%,rgba(0,0,0,.16) 100%)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 2px rgba(0,0,0,.12),0 4px 12px -6px rgba(20,60,140,.45)}
+.pbar:not(.good):not(.warn):not(.bad) i,.mt-fill,.hbar i:only-child{background-color:var(--c-blue)}
+.hbar i{background-color:var(--c-blue)}
+:root[data-theme="dark"] :is(.hbar i,.tt i,.pbar i,.meter i,.mt-fill,.segbar i){box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 4px 14px -6px rgba(90,150,255,.55)}
+.chart .legend i{border-radius:4px}
+/* pager under the lead list */
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 4px 0;border-top:1px solid var(--hair)}
+.pg-per{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.pg-per .seg button{padding:5px 11px;font-variant-numeric:tabular-nums}
+.pg-of{font-size:12.5px;font-variant-numeric:tabular-nums}
+.pg-nums{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.pg{min-width:34px;height:34px;padding:0 8px;border-radius:12px;border:1px solid var(--glass-edge);background:var(--glass);color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums}
+.pg:hover:not([disabled]){border-color:var(--accent)}
+.pg.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pg[disabled]{opacity:.4;cursor:default}
+.pg-gap{color:var(--ink3);padding:0 2px}
+/* organisation first */
+.ldt .t.org{font-weight:700}
+.lcard .s.org{font-weight:700;color:var(--ink);font-size:12.5px}
+.rec-org{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;font-weight:700;color:var(--accent)}
+.rec-org svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2}
+@media (max-width:760px){.xb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.xk{min-height:100px}.kpi.xk .v{font-size:19px}.pager{justify-content:center}}
+.xb-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.kpis.exec{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:1280px){.xb-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))}.kpis.exec{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.kpis.exec{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ldt td .s{white-space:nowrap}

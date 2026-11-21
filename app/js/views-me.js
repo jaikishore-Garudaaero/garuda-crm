@@ -56,13 +56,26 @@ const TG = {
     return t;
   },
   target(u, key, fy = TG.fy()) { return key === 'fy' ? sum(TG.depts(u), (d) => TG.yearly(fy, d, u.seg || '', u.pid || null)) : TG.inRange(u, TG.per(key, fy)); },
-  /* achieved = booked: won deal value (by won date) plus ledger rows with no CRM deal behind them (monthly sheet totals) */
-  achieved(u, r) {
-    const ds = new Set(TG.depts(u)); const whole = !['today', 'week'].includes(r.key);
-    const won = visibleLeads().filter((l) => ds.has(l.funnel) && L.won(l) && M.inR(l.won_at, r) && (!u.pid || l.owner === u.pid) && (!u.seg || leadSeg(l) === u.seg));
-    const ent = u.pid || !whole ? [] : DB.t.revenue_entries.filter((e) => ds.has(e.department) && !e.lead_id && M.inR(e.month, r) && (!u.seg || e.segment === u.seg));
-    return sum(won, (l) => l.value) + sum(ent, (e) => e.amount);
+  /* Academy collections carry no caller name; the targets workbook says how they split between callers */
+  share(pid, fy) { const sp = DB.settings.academy_split; if (!pid || !sp || (fy != null && Number(sp.fy) !== fy)) return 0; return sum((sp.shares || []).filter((x) => x.pid === pid), (x) => Number(x.share) || 0); },
+  /* does a ledger line fall in the range? CRM payments have a day; sheet lines are monthly, so they count for a month or longer */
+  lineIn(e, r) { if (e.paid_on) return M.inR(e.paid_on, r); return !['today', 'week'].includes(r.key) && M.inR(e.month, r); },
+  /* how much of a ledger line belongs to a person: their own line, or their share of the Academy collections */
+  weight(e, pid) { if (!pid) return 1; if (e.owner) return e.owner === pid ? 1 : 0; if (/split/i.test(e.owner_label || '')) { const m = new Date(String(e.month).slice(0, 10) + 'T12:00:00'); return TG.share(pid, m.getMonth() >= 3 ? m.getFullYear() : m.getFullYear() - 1); } return 0; },
+  lines(u, r, status) {
+    const ds = new Set(TG.depts(u));
+    return DB.t.revenue_entries.filter((e) => ds.has(e.department) && (!status || e.status === status) && (!u.seg || e.segment === u.seg) && TG.lineIn(e, r)).map((e) => ({ e, w: TG.weight(e, u.pid) })).filter((x) => x.w > 0);
   },
+  /* deals won in the CRM whose value is not in the ledger yet (imported deals are already there as sheet lines) */
+  wonExtra(u, r) {
+    const ds = new Set(TG.depts(u)); const led = {}; DB.t.revenue_entries.forEach((e) => { if (e.lead_id) led[e.lead_id] = (led[e.lead_id] || 0) + Number(e.amount || 0); });
+    return visibleLeads().filter((l) => !l.imported && ds.has(l.funnel) && L.won(l) && M.inR(l.won_at, r) && (!u.pid || l.owner === u.pid) && (!u.seg || leadSeg(l) === u.seg))
+      .map((l) => ({ l, v: Math.max(0, Number(l.value || 0) - (led[l.id] || 0)) })).filter((x) => x.v > 0);
+  },
+  /* achieved = booked: collected + balance due in the ledger, plus CRM-won deals not in the ledger yet (the target sheet's rule) */
+  achieved(u, r) { return sum(TG.lines(u, r), (x) => x.w * Number(x.e.amount || 0)) + sum(TG.wonExtra(u, r), (x) => x.v); },
+  collected(u, r) { return sum(TG.lines(u, r, 'Collected'), (x) => x.w * Number(x.e.amount || 0)); },
+  due(u, r) { return sum(TG.lines(u, r, 'Pending PO'), (x) => x.w * Number(x.e.amount || 0)); },
   /* has anyone set a target this unit can be measured against? */
   has(u, fy = TG.fy()) { return TG.target(u, 'fy', fy) > 0; },
   workDaysLeft(r) { let n = 0; const d = new Date(); d.setHours(0, 0, 0, 0); for (; d < r.to; d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n++; return Math.max(n, 1); },
@@ -110,6 +123,9 @@ function milestoneTrack(u, P = TG.cur()) {
   const max = Math.max(total, ach, 1); const pc = total ? Math.round((ach / total) * 100) : null;
   const due = TG.inRange(u, { from: P.from, to: new Date(Math.min(now, P.to.getTime())) });
   const tone = pc == null ? 'mute' : toneFor(pc, TG.elapsed(P));
+  /* no target: no milestones to place (they would all sit on the start line) */
+  if (!total) return `<div class="mtrack tone-mute"><div class="mt-top"><div class="mt-big"><b>${inr(ach)}</b><span>booked · ${esc(P.label)}</span></div><div class="mt-pc mute">—</div></div>
+    <div class="mt-road"><div class="mt-fill" style="width:${ach ? 100 : 0}%"></div></div></div>`;
   return `<div class="mtrack tone-${tone}">
     <div class="mt-top"><div class="mt-big"><b>${inr(ach)}</b><span>of ${total ? inr(total) : '—'}</span></div><div class="mt-pc ${tone}">${pc == null ? '—' : pc + '%'}</div></div>
     <div class="mt-road"><div class="mt-fill" style="width:${(Math.min(ach, max) / max) * 100}%"></div>${total ? `<i class="mt-now" style="left:${(Math.min(due, max) / max) * 100}%" title="Where you should be today: ${inr(due)}"></i>` : ''}
@@ -162,53 +178,76 @@ function hbars(rows, fmt = inr, none = 'Nothing to show.') {
 }
 
 /* ================= Revenue → Overview (pictures) and Targets (the breakup) ================= */
-function bookedIn(codes, r) {
-  const ds = new Set(codes);
-  return sum(M.leads().filter((l) => ds.has(l.funnel) && L.won(l) && M.inR(l.won_at, r)), (l) => l.value) + sum(DB.t.revenue_entries.filter((e) => ds.has(e.department) && !e.lead_id && M.inR(e.month, r) && entryOk(e)), (e) => e.amount);
+function bookedIn(codes, r) { return sum(codes, (c) => TG.achieved({ dept: c, pid: ST.person === 'all' ? null : ST.person }, r)); }
+/* ---------- Revenue → Overview: target against booked for any period, how far behind, and the breakup ---------- */
+let revPer = 'fy';
+const REV_PERS = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['quarter', 'This quarter'], ['fy', 'This year']];
+/* one unit (process, product or person) against its target for the period: target, due by today, booked, collected, balance due */
+function tva(u, P) {
+  const now = new Date(); const t = TG.inRange(u, P); const due = TG.inRange(u, { from: P.from, to: new Date(Math.min(now.getTime(), P.to.getTime())) });
+  const a = TG.achieved(u, P); const c = TG.collected(u, P); const d = TG.due(u, P);
+  return { t, due, a, c, d, gap: Math.max(0, t - a), lag: due - a, p: t ? Math.round((a / t) * 100) : null };
+}
+const pctChip = (x, P) => (x.p == null ? '<span class="faint">—</span>' : `<span class="chip tone ${toneFor(x.p, TG.elapsed(P))}">${x.p}%</span>`);
+const lagCell = (x) => (!x.t ? '<span class="faint">—</span>' : x.lag > 0.5 ? `<span class="bad">−${inr(x.lag)}</span>` : `<span class="good">+${inr(-x.lag)}</span>`);
+function tvaTable(head, rows, P, total) {
+  const tr = (r, cls = '') => `<tr class="${cls}">${r.cells}<td class="n">${r.x.t ? inr(r.x.t) : '—'}</td><td class="n"><b>${inr(r.x.a)}</b></td><td class="n">${inr(r.x.c)}</td><td class="n">${r.x.d ? inr(r.x.d) : '—'}</td><td class="n">${lagCell(r.x)}</td><td class="n">${pctChip(r.x, P)}</td><td class="pcol"><span class="pbar ${r.x.p == null ? 'mute' : toneFor(r.x.p, TG.elapsed(P))}"><i style="width:${clamp(r.x.p || 0, 0, 100)}%"></i><em style="left:${Math.round(TG.elapsed(P) * 100)}%"></em></span></td></tr>`;
+  return `<div class="tablewrap free"><table class="tva"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}<th class="n">Target</th><th class="n">Achieved</th><th class="n">Collected</th><th class="n">Balance due</th><th class="n">Ahead / behind</th><th class="n">%</th><th class="pcol"></th></tr></thead>
+    <tbody>${rows.map((r) => tr(r)).join('') || `<tr><td colspan="${head.length + 7}" class="faint">Nothing to show.</td></tr>`}${total ? tr(total, 'tot') : ''}</tbody></table></div>`;
 }
 function revOverview(b) {
-  const fy = TG.fy(); const R = TG.per('fy', fy); const codes = ST.dept === 'All' ? DEPTS().map((d) => d.code) : [ST.dept];
-  const u = { dept: ST.dept, pid: ST.person === 'all' ? null : ST.person };
-  const tFY = TG.target(u, 'fy'), aFY = TG.achieved(u, R); const mR = TG.per('month'); const tM = TG.target(u, 'month'), aM = TG.achieved(u, mR);
-  const col = sum(DB.t.revenue_entries.filter((e) => codes.includes(e.department) && e.status === 'Collected' && M.inR(e.month, R) && entryOk(e)), (e) => e.amount);
-  const recv = sum(codes, (c) => M.receivables(c).amount);
+  const fy = TG.fy(); const R = TG.per('fy', fy); const P = TG.per(revPer, fy); const codes = ST.dept === 'All' ? DEPTS().map((d) => d.code) : [ST.dept];
+  const pid = ST.person === 'all' ? null : ST.person; const u = { dept: ST.dept, pid };
+  const X = tva(u, P); const days = TG.workDaysLeft(P);
+  const dated = DB.t.revenue_entries.some((e) => e.paid_on && TG.lineIn(e, P));
+  /* by process, by product, by person */
+  const procRows = codes.map((code) => ({ cells: `<td>${deptChip(code)} ${esc(dept(code).name)}</td>`, x: tva({ dept: code, pid }, P) }));
+  const prodRows = codes.flatMap((code) => { const segs = [...new Set([...(dept(code).segments || []), ...TG.rows(fy).filter((t) => t.dept === code && t.segment && !t.person).map((t) => t.segment), ...DB.t.revenue_entries.filter((e) => e.department === code && TG.lineIn(e, R)).map((e) => e.segment)])];
+    return segs.map((sg) => ({ cells: `<td>${deptChip(code)}</td><td>${esc(sg)}</td>`, x: tva({ dept: code, seg: sg, pid }, P) })).filter((r) => r.x.t || r.x.a); });
+  const holders = [...new Set(TG.rows(fy).filter((t) => t.person && codes.includes(t.dept)).map((t) => t.person))];
+  const pplRows = pid ? [] : holders.map((id) => ({ id, cells: `<td><b>${esc(DB.pname(id))}</b><div class="s">${esc(DB.get('profiles', id)?.designation || '')}</div></td>`, x: tva({ dept: ST.dept, pid: id }, P) })).sort((a, c) => c.x.t - a.x.t);
+  if (pplRows.length) { const rest = { t: 0, due: 0, a: X.a - sum(pplRows, (r) => r.x.a), c: X.c - sum(pplRows, (r) => r.x.c), d: X.d - sum(pplRows, (r) => r.x.d) }; rest.lag = -rest.a; rest.p = null; rest.gap = 0; if (rest.a > 0.5) pplRows.push({ cells: '<td>Others and not yet assigned<div class="s">Revenue lines with no owner, and Academy collections of callers without a target</div></td>', x: rest }); }
+  /* month by month for the year: each process, the total, the target and the running gap */
   const months = []; for (let d = new Date(fy, 3, 1); d < R.to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) months.push(localDate(d).slice(0, 7));
   const mr = (ym) => { const [y, m] = ym.split('-').map(Number); return { key: 'month', from: new Date(y, m - 1, 1), to: new Date(y, m, 1) }; };
-  const booked = months.map((m) => (ST.person === 'all' ? bookedIn(codes, mr(m)) : TG.achieved(u, mr(m))));
-  const collected = months.map((m) => sum(DB.t.revenue_entries.filter((e) => codes.includes(e.department) && e.status === 'Collected' && String(e.month).slice(0, 7) === m && entryOk(e)), (e) => e.amount));
-  const tgt = months.map((m) => sum(TG.depts(u), (d) => TG.yearly(fy, d, '', u.pid) * TG.phase(fy, d, m)));
-  const byDept = DEPTS().filter((d) => codes.includes(d.code)).map((d) => ({ label: d.name, value: bookedIn([d.code], R), color: d.color }));
-  const segRows = {}; M.leads().filter((l) => codes.includes(l.funnel) && L.won(l) && M.inR(l.won_at, R)).forEach((l) => { const k = (codes.length > 1 ? l.funnel + ' · ' : '') + leadSeg(l); segRows[k] = (segRows[k] || 0) + Number(l.value || 0); });
-  DB.t.revenue_entries.filter((e) => codes.includes(e.department) && !e.lead_id && M.inR(e.month, R) && entryOk(e)).forEach((e) => { const k = (codes.length > 1 ? e.department + ' · ' : '') + (e.segment || 'Not stated'); segRows[k] = (segRows[k] || 0) + Number(e.amount || 0); });
-  const seg = Object.entries(segRows).map(([label, value]) => ({ label, value })).sort((a, c) => c.value - a.value);
-  const won = codes.flatMap((c) => M.receivables(c).leads);
-  const age = [[0, 30], [31, 60], [61, 90], [91, 99999]].map(([a, z], i) => ({ label: z > 9999 ? '90+ days' : `${a}–${z} days`, value: sum(won.filter((l) => daysAgo(l.won_at) >= a && daysAgo(l.won_at) <= z), L.due), color: ['#2cc3b5', '#3a8ae0', '#7b6cf0', '#0a4f9a'][i] }));
-  const cli = {}; DB.t.revenue_entries.filter((e) => codes.includes(e.department) && M.inR(e.month, R) && entryOk(e)).forEach((e) => { const k = e.client || 'Not stated'; cli[k] = (cli[k] || 0) + Number(e.amount || 0); });
-  const top = Object.entries(cli).filter(([k]) => k !== 'Not stated').map(([label, value]) => ({ label, value })).sort((a, c) => c.value - a.value).slice(0, 8);
-  const p = tFY ? Math.round((aFY / tFY) * 100) : 0;
-  b.innerHTML = `<div class="kpis">
-      ${kpi({ label: 'Target · ' + TG.label(fy), value: tFY ? inr(tFY) : '—', sub: tFY ? `${inr(tFY / 12)} a month on average` : 'Set it in Targets' })}
-      ${kpi({ label: 'Achieved (booked)', value: inr(aFY), sub: tFY ? `${p}% of the year · ${Math.round(TG.elapsed(R) * 100)}% of the year gone` : 'Won deals + ledger', meter: tFY ? p : undefined })}
-      ${kpi({ label: 'Collected', value: inr(col), sub: `${TG.label(fy)} · verified in the ledger` })}
-      ${kpi({ label: 'Receivable now', value: inr(recv), sub: 'Won, not yet collected' })}
-      ${kpi({ label: mR.label + ' target', value: tM ? inr(tM) : '—', sub: tM ? `${inr(aM)} booked · ${pct(aM, tM)}%` : 'No target', meter: tM ? pct(aM, tM) : undefined })}
+  let cumA = 0, cumT = 0; const ym0 = localDate(new Date()).slice(0, 7);
+  const mrows = months.map((m) => { const per = codes.map((c) => TG.achieved({ dept: c, pid }, mr(m))); const a = sum(per); const t = TG.inRange(u, mr(m)); const c = TG.collected(u, mr(m)); cumA += a; cumT += t; return { m, per, a, t, c, cumA, cumT, past: m <= ym0 }; });
+  const booked = mrows.map((x) => x.a); const collected = mrows.map((x) => x.c); const tgt = mrows.map((x) => x.t);
+  const seg = Object.entries(groupBy(TG.lines(u, R), (x) => (codes.length > 1 ? x.e.department + ' · ' : '') + (x.e.segment || 'Not stated'))).map(([label, a]) => ({ label, value: sum(a, (x) => x.w * x.e.amount) })).sort((a, c) => c.value - a.value);
+  const byDept = codes.map((c) => ({ label: dept(c).name, value: TG.achieved({ dept: c, pid }, R), color: dept(c).color }));
+  const recv = pid ? 0 : sum(codes, (c) => M.receivables(c).amount);
+  const cli = {}; TG.lines(u, R).forEach(({ e, w }) => { const k = e.client || 'Not stated'; cli[k] = (cli[k] || 0) + w * Number(e.amount || 0); });
+  const top = Object.entries(cli).filter(([k]) => !/^not stated|^individual candidates/i.test(k)).map(([label, value]) => ({ label, value })).sort((a, c) => c.value - a.value).slice(0, 8);
+  const behind = X.lag > 0.5; const tn = X.p == null ? 'mute' : toneFor(X.p, TG.elapsed(P));
+  b.innerHTML = `<div class="row tgbar"><div class="seg big" role="group" aria-label="Period">${REV_PERS.map(([k, t]) => `<button data-rp="${k}" aria-pressed="${revPer === k}">${t}</button>`).join('')}</div>
+      <span class="faint">${esc(P.label)} · ${fmtDate(P.from)} – ${fmtDate(new Date(P.to.getTime() - 864e5))}${['today', 'week'].includes(revPer) && !dated ? ' · sheet revenue is monthly, so a day or week shows only payments recorded in the CRM' : ''}</span></div>
+    <div class="kpis exec">
+      ${kpi({ label: 'Target · ' + P.label, value: X.t ? inr(X.t) : '—', sub: X.t ? `${inr(X.due)} due by today at an even pace` : 'No target set' })}
+      ${kpi({ label: 'Achieved (booked)', value: inr(X.a), sub: X.t ? `${X.p}% of target · ${Math.round(TG.elapsed(P) * 100)}% of the period gone` : 'Collected + balance due', meter: X.t ? X.p : undefined, tone: tn })}
+      ${kpi({ label: 'Collected', value: inr(X.c), sub: 'Money received' })}
+      ${kpi({ label: 'Balance due', value: inr(X.d), sub: 'Sale done, payment to come' })}
+      ${kpi({ label: behind ? 'Behind target by' : 'Ahead of target by', value: X.t ? inr(Math.abs(X.lag)) : '—', sub: X.t ? `against ${inr(X.due)} due by today` : '', tone: X.t ? (behind ? 'bad' : 'good') : '' })}
+      ${kpi({ label: 'Needed per working day', value: X.gap ? inr(X.gap / days) : X.t ? 'Target met' : '—', sub: X.gap ? `${inr(X.gap)} to go · ${nfmt(days)} working day${days === 1 ? '' : 's'} left` : '' })}
     </div>
-    <div class="grid g12">
-      <section class="glass panel"><div class="panel-head"><h2><span class="gtag green">Target</span> ${TG.label(fy)}</h2><span class="sub">Booked against the yearly target</span></div>
-        ${gauge(p, tFY ? p + '%' : inr(aFY), tFY ? `${inr(aFY)} of ${inr(tFY)}` : 'no target set')}
-        <div class="duo"><div><b>${inr(Math.max(0, tFY - aFY))}</b><span>still to book</span></div><div><b>${inr(Math.max(0, tFY - aFY) / Math.max(1, TG.workDaysLeft(R)))}</b><span>a working day</span></div></div></section>
-      <section class="glass panel"><div class="panel-head"><h2><span class="gtag blue">Month by month</span> Target, booked and collected</h2><span class="sub">${TG.label(fy)} · dashed line is the target</span></div>
-        ${barChart({ labels: months.map(monShort), series: [{ name: 'Booked', color: '#2676dc', values: booked }, { name: 'Collected', color: '#8d3f91', values: collected }], target: tgt.some(Boolean) ? tgt : null })}</section>
+    <section class="glass panel"><div class="panel-head"><h2><span class="gtag green">${svg('target')} Target</span> ${esc(P.label)}</h2><span class="sub">The marker is where the team should be today</span></div>${milestoneTrack(u, P)}</section>
+    <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Processes</span> Target against achieved</h2><span class="sub">${esc(P.label)} · ahead / behind is against the target due by today</span></div>
+      ${tvaTable(['Process'], procRows, P, codes.length > 1 ? { cells: '<td>Total</td>', x: X } : null)}</section>
+    <div class="grid">
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Products</span> Target against achieved</h2><span class="sub">${esc(P.label)}</span></div>${tvaTable(['Process', 'Product'], prodRows, P)}</section>
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag blue">People</span> Target against achieved</h2><span class="sub">${esc(P.label)} · own lines plus their share of Academy collections</span></div>${pid ? '<p class="faint">Showing one person: clear the Person filter to compare everyone.</p>' : tvaTable(['Person'], pplRows, P)}</section>
     </div>
+    <section class="glass panel"><div class="panel-head"><h2><span class="gtag blue">Month by month</span> ${TG.label(fy)}</h2><span class="sub">Booked by process, the target at an even pace, and the running gap</span></div>
+      ${barChart({ labels: months.map(monShort), series: [{ name: 'Booked', color: '#2676dc', values: booked }, { name: 'Collected', color: '#8d3f91', values: collected }], target: tgt.some(Boolean) ? tgt : null })}
+      <div class="tablewrap free"><table class="mtab"><thead><tr><th>Month</th>${codes.map((c) => `<th class="n">${esc(dept(c).name)}</th>`).join('')}<th class="n">Booked</th><th class="n">Collected</th><th class="n">Target</th><th class="n">Year to date</th><th class="n">Behind / ahead</th></tr></thead><tbody>
+        ${mrows.map((x) => `<tr class="${x.m === ym0 ? 'cur' : ''} ${x.past ? '' : 'future'}"><td>${monShort(x.m)}${x.m === ym0 ? ' <span class="chip tone info">now</span>' : ''}</td>${x.per.map((v0) => `<td class="n">${v0 ? inr(v0) : '<span class="faint">—</span>'}</td>`).join('')}<td class="n"><b>${x.a ? inr(x.a) : '—'}</b></td><td class="n">${x.c ? inr(x.c) : '—'}</td><td class="n">${x.t ? inr(x.t) : '—'}</td><td class="n">${x.past ? inr(x.cumA) : ''}</td><td class="n">${x.past && x.cumT ? (x.cumT - x.cumA > 0.5 ? `<span class="bad">−${inr(x.cumT - x.cumA)}</span>` : `<span class="good">+${inr(x.cumA - x.cumT)}</span>`) : ''}</td></tr>`).join('')}
+        <tr class="tot"><td>${TG.label(fy)}</td>${codes.map((_, i) => `<td class="n">${inr(sum(mrows, (x) => x.per[i]))}</td>`).join('')}<td class="n">${inr(sum(booked))}</td><td class="n">${inr(sum(collected))}</td><td class="n">${inr(sum(tgt))}</td><td></td><td></td></tr></tbody></table></div></section>
     <div class="grid g3">
-      <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Teams</span> Booked by team</h2><span class="sub">${TG.label(fy)}</span></div>${donut(byDept, inrShort(sum(byDept, (x) => x.value)), 'booked')}</section>
-      <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Segments</span> Booked by segment</h2><span class="sub">${TG.label(fy)}</span></div>${donut(seg, nfmt(seg.length), 'segments')}</section>
-      <section class="glass panel"><div class="panel-head"><h2><span class="gtag amber">Cash</span> Collected and pending</h2><span class="sub">${TG.label(fy)}</span></div>${donut([{ label: 'Collected', value: col, color: '#2cc3b5' }, { label: 'Receivable', value: recv, color: '#7b6cf0' }], pct(col, col + recv) + '%', 'collected')}</section>
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Processes</span> Booked</h2><span class="sub">${TG.label(fy)}</span></div>${donut(byDept, inrShort(sum(byDept, (x) => x.value)), 'booked')}</section>
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Products</span> Booked</h2><span class="sub">${TG.label(fy)}</span></div>${donut(seg, nfmt(seg.length), 'products')}</section>
+      <section class="glass panel"><div class="panel-head"><h2><span class="gtag amber">Cash</span> Collected and still to come</h2><span class="sub">${TG.label(fy)}</span></div>${donut([{ label: 'Collected', value: TG.collected(u, R), color: '#2cc3b5' }, { label: 'Balance due', value: TG.due(u, R), color: '#7b6cf0' }, { label: 'Receivable on CRM deals', value: recv, color: '#3a8ae0' }], pct(TG.collected(u, R), TG.collected(u, R) + TG.due(u, R) + recv) + '%', 'collected')}</section>
     </div>
-    <div class="grid g2">
-      <section class="glass panel"><div class="panel-head"><h2>Receivables ageing</h2><span class="sub">Days since the deal was won</span></div>${hbars(age)}</section>
-      <section class="glass panel"><div class="panel-head"><h2>Top clients</h2><span class="sub">${TG.label(fy)} · ledger</span></div>${hbars(top)}</section>
-    </div>`;
+    <section class="glass panel"><div class="panel-head"><h2>Top clients</h2><span class="sub">${TG.label(fy)} · ledger</span></div>${hbars(top)}</section>`;
+  b.querySelectorAll('[data-rp]').forEach((x) => (x.onclick = () => { revPer = x.dataset.rp; revOverview(b); }));
 }
 
 let tgFY = null;
@@ -252,7 +291,7 @@ function revTargets(b, rer) {
 }
 /* the executives a team target is split between: sales people in that team (my tree; everyone for C-level / Admin), plus anyone already holding a target */
 function targetPeople(code, fy) {
-  return scopePeople().filter((p) => (p.departments || []).includes(code) && ((isSales(p) && !['clevel', 'admin'].includes(p.role)) || TG.row(fy, code, '', p.id)));
+  return scopePeople().filter((p) => ((p.departments || []).includes(code) && isSales(p) && !['clevel', 'admin'].includes(p.role)) || TG.row(fy, code, '', p.id));
 }
 /* ================= Settings → Sales targets: pick a team, then set the team, segment, executive and monthly targets ================= */
 let tsFY = null, tsDept = null;

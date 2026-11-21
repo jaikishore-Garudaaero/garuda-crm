@@ -260,8 +260,17 @@ const IMP = { plan: null, status: '', running: false };
 function impPaint() { const bar = document.querySelector('#xlbar'); if (!bar) return; bar.innerHTML = IMP.status; bar.querySelector('#xlre')?.addEventListener('click', () => location.reload()); const go0 = document.querySelector('#xlgo'); if (go0) go0.disabled = IMP.running || IMP.plan?.warn.some((w) => w.startsWith('Statuses')); }
 function setImport(b, rer) {
   b.innerHTML = `<section class="glass panel"><div class="panel-head"><h2>${svg('upload')} Import the sales sheet</h2><span class="sub">RPTO_CoE_Sales_Sheet (.xlsx)</span></div>
-    <p class="muted" style="margin:0 0 10px">Reads <b>RPTO Leads</b>, <b>CoE Leads</b>, <b>CoE Pipeline</b>, <b>CoE Converted Clients</b>, <b>Revenue Ledger</b> and <b>Admissions Log</b>. You see what will load before anything is saved. Run it again after the sheet changes: matching IDs are updated, never doubled. Leads someone has already worked in the CRM keep their CRM status and owner.</p>
-    <input type="file" id="xlf" accept=".xlsx,.xlsm"><div id="xlp" style="margin-top:12px"></div></section>`;
+    <p class="muted" style="margin:0 0 10px">Two workbooks load here. The <b>sales sheet</b> brings RPTO Leads, CoE Leads, CoE Pipeline, Converted Clients and the Admissions Log. The <b>targets workbook</b> brings the yearly targets (by process, product and person) and every revenue line from <b>Revenue So Far</b>. You see what will load before anything is saved. Run it again after a sheet changes: matching IDs are updated, never doubled. Leads someone has already worked in the CRM keep their CRM status and owner.</p>
+    <input type="file" id="xlf" accept=".xlsx,.xlsm"><div id="xlp" style="margin-top:12px"></div></section>
+    <section class="glass panel"><div class="panel-head"><h2>${svg('trash')} Start again</h2><span class="sub">Remove what earlier imports brought in</span></div>
+      <p class="muted" style="margin:0 0 10px">Deletes imported leads nobody has worked yet, their remark history, imported projects, admissions and revenue lines. People, settings, tasks, targets and anything entered in the CRM stay. Then import the new sheet.</p>
+      <div class="row"><input id="clrc" placeholder="Type CLEAR to confirm" style="max-width:200px" aria-label="Type CLEAR to confirm"><button class="btn danger" id="clrgo">Remove imported data</button></div><div id="clrout"></div></section>`;
+  b.querySelector('#clrgo').onclick = () => guard(async () => {
+    if (b.querySelector('#clrc').value.trim().toUpperCase() !== 'CLEAR') throw new Error('Type CLEAR in the box first.');
+    b.querySelector('#clrout').innerHTML = '<p class="faint">Removing… keep this page open.</p>';
+    const r = await DB.rpc('clear_imported'); await DB.load(); IMP.plan = null;
+    b.querySelector('#clrout').innerHTML = `<div class="note good">Removed ${nfmt(r.leads)} imported leads and ${nfmt(r.revenue)} revenue lines.${r.kept_worked ? ` ${nfmt(r.kept_worked)} leads already worked in the CRM were kept.` : ''} Now import the new sheet above.</div>`;
+  });
   const out = b.querySelector('#xlp');
   if (IMP.plan) { showPlan(out, IMP.plan, rer); impPaint(); }
   b.querySelector('#xlf').onchange = (e) => {
@@ -290,19 +299,47 @@ function xD(x) {
   const s = String(x).trim(); const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
   const d = new Date(s); return isNaN(d) ? null : localDate(d);
 }
+const VG = { 'Academy (RPTO Training)': 'RPTO', 'CoE Labs': 'CoE', 'RPTO Establishment': 'EST', 'Other Services & Events': 'OTH' };
+/* a person from a sheet name (same rule as the database) */
+const personFrom = (lab) => { const t = xT(lab).toLowerCase(); return t ? DB.t.profiles.filter((p) => [p.full_name, p.sheet_name, ...(p.sheet_aliases || [])].filter(Boolean).some((x) => x.toLowerCase() === t)).sort((a, c) => Number(c.active) - Number(a.active))[0] || null : null; };
+/* the targets workbook: yearly target by process and product, each person's target by process, and how Academy collections split between callers */
+function planTargets(wb, X, P) {
+  const raw = (n) => (wb.Sheets[n] ? X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) : []);
+  const gx = raw('GAP Executive'); const fs = gx.find((r) => /^fy start/i.test(xT(r?.[0]))); const d0 = fs && xD(fs[1]); if (d0) { const d = new Date(d0 + 'T12:00:00'); P.fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; }
+  const va = sheetRows(wb, X, 'Vertical Target Allocation', 'Sub-vertical');
+  const team = {};
+  for (const r of va) { if (/^total/i.test(xT(r['Sub-vertical']))) break; const d = VG[xT(r['Vertical group'])]; const amt = xN(r['Annual target (₹)']); if (!d || amt == null) continue;
+    P.targets.push({ dept: d, segment: xT(r['Sub-vertical']), person_label: '', amount: amt }); team[d] = (team[d] || 0) + amt; }
+  Object.entries(team).forEach(([d, amt]) => P.targets.push({ dept: d, segment: '', person_label: '', amount: amt }));
+  const ew = raw('Employee Daily Weekly Monthly'); const hi = ew.findIndex((r) => (r || []).some((c) => xT(c) === 'Employee') && (r || []).some((c) => xT(c) === 'Academy (RPTO Training)'));
+  if (hi >= 0) { const h = ew[hi].map(xT);
+    for (const r of ew.slice(hi + 1)) { const who = xT(r?.[0]); if (!who || /^total/i.test(who)) break; Object.entries(VG).forEach(([g, d]) => { const amt = xN(r[h.indexOf(g)]); if (amt) P.targets.push({ dept: d, segment: '', person_label: who, amount: amt }); }); } }
+  const it = raw('Individual Targets'); const si = it.findIndex((r) => (r || []).some((c) => /^share of academy collections/i.test(xT(c))));
+  if (si >= 0) { const h = it[si].map(xT); const ci = h.findIndex((c) => /share of academy/i.test(c)); const shares = [];
+    for (const r of it.slice(si + 1)) { const who = xT(r?.[0]); if (!who || /to split|^total/i.test(who)) break; const sh = xN(r[ci]); if (sh == null) continue; const p = personFrom(who); shares.push({ label: who, pid: p?.id || null, share: sh }); }
+    if (shares.length) P.split = { fy: P.fy, shares }; }
+  const miss = [...new Set(P.targets.map((t) => t.person_label).filter((x) => x && !personFrom(x)))];
+  if (miss.length) P.warn.push(`No CRM person for target holder: ${miss.join(', ')}. Add the name under Users & Access → Edit → Sheet name, or their target is skipped.`);
+  P.counts.targets = P.targets.length; P.counts.targetTotal = sum(P.targets.filter((t) => !t.segment && !t.person_label), (t) => t.amount);
+}
 const PROC = { 'RPTO Training': 'RPTO', CoE: 'CoE', 'RPTO Establishment': 'EST', 'Other Services': 'OTH' };
+/* a lead is handed over when the sheet names a hand-over code ("Sowmiya SJ2") or someone who is not in the CRM (staff who left) */
+const oldStaff = (who) => !!who && (/\d$/.test(who) || !personFrom(who));
+const xOrg = (x) => { const t = xT(x); return /^(none|not specified|n\/a|-|na)$/i.test(t) ? '' : t; };
+const acadStatus = (x) => { const t = xT(x).toLowerCase(); return Object.entries(ACAD_ST).find(([k]) => k.toLowerCase() === t)?.[1] || (t ? xT(x) : 'New'); };
 const ACAD_ST = { RNR: 'RNR', 'Follow Up': 'Follow Up', 'Future Follow up': 'Future Follow Up', Pipeline: 'Pipeline', 'Closed Won': 'Closed Won', 'Closed Lost': 'Closed Lost', Duplicate: 'Duplicate', 'Other Department': 'Other Department', 'CoE Other Department': 'CoE Other Department' };
 const tierTemp = (t) => (/^P1/.test(t) ? 'Hot' : /^P2/.test(t) ? 'Warm' : /^P5|^R1/.test(t) ? 'Nurture' : /^X/.test(t) ? 'Drop' : /^P[34]/.test(t) ? 'Cold' : '');
 function planImport(wb, X) {
-  const P = { leads: [], projects: [], revenue: [], adm: [], src: [], counts: {}, warn: [] };
+  const P = { leads: [], projects: [], revenue: [], adm: [], src: [], targets: [], split: null, fy: TG.fy(), revScope: null, counts: {}, warn: [], note: [] };
   /* RPTO Academy leads */
   const ra = sheetRows(wb, X, 'RPTO Leads', 'Lead ID').filter((r) => xT(r['Lead ID']));
-  ra.forEach((r) => { const st = ACAD_ST[xT(r['Lead Status'])] || 'New'; const tier = xT(r['Campaign Tier']); const who = xT(r['Assigned To']);
+  ra.forEach((r) => { const st = acadStatus(r['Lead Status']); const tier = xT(r['Current Campaign Tier'] ?? r['Campaign Tier']); const who = xT(r['Assigned To']);
+    const audit = xT(r['Audit Tier (17 Oct)']); const changed = xT(r['Tier changed?']);
     P.leads.push({ funnel: 'RPTO', ref_id: xT(r['Lead ID']).replace(/\.0$/, ''), stage: st, is_deal: st === 'Pipeline' || st === 'Closed Won', name: xT(r['Client Name']), phone: xT(r['Phone']), email: xT(r['Email']).replace(/^not specified$/i, ''),
-      city: xT(r['Location / Org']), source: xT(r['Lead Origin']), enquiry_date: xD(r['Enquiry Date']), allocated_date: xD(r['Allocation Date']), owner_label: who, course: xT(r['Course / Interest']), routed_dept: xT(r['Routed Department']),
-      value: xN(r['Value (₹)']) || 0, temperature: tierTemp(tier), campaign_tier: tier, priority_score: xN(r['Priority Score']), tier_reason: xT(r['Why this tier']), tier_source: xT(r['Tier Source']), language: xT(r['Language']).replace(/^not captured$/i, ''),
+      city: xOrg(r['Location'] ?? r['Location / Org']), org: xOrg(r['Organisation / Institution']), latest_update: xT(r['Current Status (latest remark)']), source: xT(r['Lead Origin']), enquiry_date: xD(r['Enquiry Date']), allocated_date: xD(r['Allocation Date']), owner_label: who, course: xT(r['Course / Interest']), routed_dept: xT(r['Routed Department']),
+      value: xN(r['Value (₹)']) || 0, temperature: tierTemp(tier), campaign_tier: tier, priority_score: xN(r['Priority Score']), tier_reason: xT(r['Why this tier']), tier_source: xT(r['Tier Source']) || (audit ? `Audit 17 Oct: ${audit}${/^yes/i.test(changed) ? ' · ' + changed : ''}` : ''), language: xT(r['Language']).replace(/^not captured$/i, ''),
       eligible: /^yes/i.test(xT(r['Eligible?'])) ? 'Eligible' : /^no/i.test(xT(r['Eligible?'])) ? 'Not eligible' : 'Unknown', call_attempts: xN(r['Call Attempts']) || 0, latest_remark: xT(r['Latest Remark']), history: xT(r['All Remarks (date-wise)']),
-      lost_reason: st === 'Closed Lost' ? (xT(r['Why this tier']) || 'From the sales sheet') : '', won_at: st === 'Closed Won' ? xD(r['Enquiry Date']) : null, inherited: /\d$/.test(who) });
+      lost_reason: st === 'Closed Lost' ? (xT(r['Why this tier']) || 'From the sales sheet') : '', won_at: st === 'Closed Won' ? xD(r['Enquiry Date']) : null, inherited: oldStaff(who) });
   });
   P.counts.academy = ra.length;
   /* CoE leads */
@@ -311,9 +348,9 @@ function planImport(wb, X) {
     if (/lost/i.test(s)) return 'Closed Lost'; if (/won/i.test(s)) return 'Closed Won'; if (['New', 'Contacted', 'Qualified'].includes(s)) return s;
     if (/closed/i.test(e)) return 'Closed Lost'; if (/qualified/i.test(e)) return 'Qualified'; if (/contacted|progress/i.test(e)) return 'Contacted'; return 'New'; };
   ca.forEach((r) => { const st = coeStage(r); const pr = xT(r['Priority']); const who = xT(r['Assigned To']);
-    P.leads.push({ funnel: 'CoE', ref_id: xT(r['Lead ID']).replace(/\.0$/, ''), stage: st, is_deal: st === 'Closed Won', name: xT(r['Client Name']), phone: xT(r['Phone']), email: xT(r['Email']).replace(/^not specified$/i, ''), org: xT(r['Location / Org']).replace(/^not specified$/i, ''),
+    P.leads.push({ funnel: 'CoE', ref_id: xT(r['Lead ID']).replace(/\.0$/, ''), stage: st, is_deal: st === 'Closed Won', name: xT(r['Client Name']), phone: xT(r['Phone']), email: xT(r['Email']).replace(/^not specified$/i, ''), org: xOrg(r['Organisation / Institution'] ?? r['Location / Org']), city: xOrg(r['Location']),
       source: xT(r['Lead Origin']), enquiry_date: xD(r['Enquiry Date']), allocated_date: xD(r['Allocation Date']), owner_label: who, sub_category: xT(r['Interest (Sub-Category)']), temperature: ['Hot', 'Warm', 'Cold', 'Drop'].includes(pr) ? pr : '',
-      latest_update: xT(r['Final Summary']), call_attempts: xN(r['Call Attempts']) || 0, latest_remark: xT(r['Latest Remark']), history: xT(r['All Remarks (date-wise)']), lost_reason: st === 'Closed Lost' ? (xT(r['Final Summary']) || 'From the sales sheet') : '', inherited: /\d$/.test(who) });
+      latest_update: [xT(r['Current Status (latest remark)']), xT(r['Final Summary'])].filter(Boolean).join(' · '), call_attempts: xN(r['Call Attempts']) || 0, latest_remark: xT(r['Latest Remark']), history: xT(r['All Remarks (date-wise)']), lost_reason: st === 'Closed Lost' ? (xT(r['Final Summary']) || 'From the sales sheet') : '', inherited: oldStaff(who) });
   });
   P.counts.coe = ca.length;
   /* CoE pipeline: deals, by service */
@@ -334,13 +371,23 @@ function planImport(wb, X) {
       order_value: xN(r['Order Value (₹)']) || 0, received: xN(r['Received (₹)']) || 0, delivered: xT(r['Product Delivered']), order_date: xD(r['Date of Order']), notes: [xT(r['Current Status']), xT(r['Remarks'])].filter(Boolean).join(' · ') });
   });
   P.counts.projects = P.projects.length;
-  /* revenue ledger */
-  const seen = {};
-  sheetRows(wb, X, 'Revenue Ledger', 'Month').filter((r) => xN(r['Amount (₹)']) && !/awaiting/i.test(xT(r['Payment Status']))).forEach((r) => {
+  /* revenue: the 'Revenue So Far' sheet of the targets workbook (product and owner on every line) */
+  const seen = {}; const rsf = sheetRows(wb, X, 'Revenue So Far', 'Month').filter((r) => xD(r['Month']) && xN(r['Amount (₹)']) && !/awaiting/i.test(xT(r['Status'])));
+  rsf.forEach((r) => {
+    const dept0 = VG[xT(r['Vertical group'])] || 'OTH'; const ps = xT(r['Status']); const status = /^(collected|received|paid)/i.test(ps) ? 'Collected' : 'Pending PO'; const month = xD(r['Month']).slice(0, 7) + '-01';
+    const seg = xT(r['Sub-vertical']); const k = [month, dept0, seg, xT(r['Client / detail']), xT(r['Label in Revenue tab']), status].join('|'); seen[k] = (seen[k] || 0) + 1;
+    P.revenue.push({ import_key: 'rsf|' + k + '|' + seen[k], month, paid_on: null, dept: dept0, channel: '', segment: seg, client: xT(r['Client / detail']), amount: xN(r['Amount (₹)']), status, opp_ref: xT(r['Linked ID']), owner_label: xT(r['Owner']),
+      note: [status === 'Pending PO' ? ps : '', xT(r['Label in Revenue tab']), xT(r['Owner basis'])].filter(Boolean).join(' · ') });
+  });
+  if (rsf.length) P.revScope = 'rsf|';
+  const haveRsf = DB.t.revenue_entries.some((e) => String(e.import_key || '').startsWith('rsf|'));
+  if (!rsf.length && haveRsf && wb.Sheets['Revenue Ledger']) P.note.push('Revenue comes from the targets workbook (Revenue So Far), so the Revenue Ledger in this sheet is skipped.');
+  if (!rsf.length && !haveRsf) sheetRows(wb, X, 'Revenue Ledger', 'Month').filter((r) => xN(r['Amount (₹)']) && !/awaiting/i.test(xT(r['Payment Status']))).forEach((r) => {
     const dept0 = PROC[xT(r['Department'])] || 'OTH'; const ps = xT(r['Payment Status']); const status = /^(collected|received|paid)/i.test(ps) ? 'Collected' : 'Pending PO'; const month = (xD(r['Month']) || '').slice(0, 7) + '-01';
     const k = [month, dept0, xT(r['Segment']), xT(r['Client']), xN(r['Amount (₹)']), status].join('|'); seen[k] = (seen[k] || 0) + 1;
     P.revenue.push({ import_key: 'rev|' + k + '|' + seen[k], month, dept: dept0, channel: xT(r['Channel']), segment: xT(r['Segment']), client: xT(r['Client']), amount: xN(r['Amount (₹)']), status, opp_ref: xT(r['Linked ID']), note: [status === 'Pending PO' ? ps : '', xT(r['Basis / note']), xT(r['Original label (Revenue tab)'])].filter(Boolean).join(' · ') });
   });
+  planTargets(wb, X, P);
   P.counts.revenue = P.revenue.length; P.counts.pending = P.revenue.filter((x) => x.status === 'Pending PO').length;
   /* admissions log: three tables side by side */
   const aw = wb.Sheets['Admissions Log'];
@@ -354,7 +401,7 @@ function planImport(wb, X) {
   /* checks: owners and statuses the CRM does not know */
   const known = (lab) => !lab || DB.t.profiles.some((p) => [p.full_name, p.sheet_name, ...(p.sheet_aliases || [])].filter(Boolean).some((x) => x.toLowerCase() === lab.toLowerCase()));
   const unk = [...new Set(P.leads.map((l) => l.owner_label).filter((x) => x && !known(x)))];
-  if (unk.length) P.warn.push(`No CRM person for: ${unk.join(', ')}. Those leads load without an owner; add the name under Users & Access → Edit → Sheet name, or reassign later.`);
+  if (unk.length) P.note.push(`Not in the CRM: ${unk.join(', ')}. Their leads are marked as handed over. A lead already in the CRM keeps the person it is with now; a new one loads unassigned (reassign it from Leads, or add the name under Users & Access → Sheet name).`);
   const badSt = [...new Set(P.leads.filter((l) => !S.get(l.funnel, l.stage)).map((l) => `${l.funnel}: ${l.stage}`))];
   if (badSt.length) P.warn.push(`Statuses not set up yet: ${badSt.join(', ')}. Add them in Statuses, stages & lists first.`);
   P.counts.inherited = P.leads.filter((l) => l.inherited).length;
@@ -362,10 +409,12 @@ function planImport(wb, X) {
 }
 function showPlan(out, P, rer) {
   const c = P.counts;
-  out.innerHTML = `<div class="kpis">${[['RPTO Academy leads', c.academy], ['CoE leads', c.coe], ['Pipeline deals', c.pipeline], ['Won projects', c.projects], ['Revenue lines', c.revenue], ['… of them balance due', c.pending], ['Admissions rows', c.admissions], ['Handed-over leads', c.inherited]].map(([t, n]) => `<div class="glass kpi"><span class="l">${t}</span><span class="v">${nfmt(n || 0)}</span></div>`).join('')}</div>
-    ${P.warn.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}
-    <div class="row" style="margin-top:10px"><button class="btn primary" id="xlgo" ${P.warn.some((w) => w.startsWith('Statuses')) ? 'disabled' : ''}>${svg('upload')} Import ${nfmt(P.leads.length)} leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines</button></div><div id="xlbar"></div>`;
-  out.querySelector('#xlgo').onclick = () => { if (!IMP.running) runImport(P); };
+  const tiles = [['RPTO Academy leads', c.academy], ['CoE leads', c.coe], ['Pipeline deals', c.pipeline], ['Won projects', c.projects], ['Revenue lines', c.revenue], ['… of them balance due', c.pending], ['Admissions rows', c.admissions], ['Handed-over leads', c.inherited], ['Target rows · ' + TG.label(P.fy), c.targets], ['Yearly target', c.targetTotal, 'inr']].filter(([, n]) => n);
+  const what = [P.leads.length && `${nfmt(P.leads.length)} leads and deals`, P.projects.length && `${nfmt(P.projects.length)} projects`, P.revenue.length && `${nfmt(P.revenue.length)} revenue lines`, P.targets.length && `${TG.label(P.fy)} targets`].filter(Boolean);
+  out.innerHTML = `<div class="kpis">${tiles.map(([t, n, f]) => `<div class="glass kpi"><span class="l">${t}</span><span class="v">${f ? inr(n) : nfmt(n || 0)}</span></div>`).join('') || '<p class="faint">Nothing this screen can read in that workbook.</p>'}</div>
+    ${P.warn.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}${P.note.map((w) => `<div class="note info">${esc(w)}</div>`).join('')}
+    ${what.length ? `<div class="row" style="margin-top:10px"><button class="btn primary" id="xlgo" ${P.warn.some((w) => w.startsWith('Statuses')) ? 'disabled' : ''}>${svg('upload')} Import ${what.join(', ')}</button></div>` : ''}<div id="xlbar"></div>`;
+  out.querySelector('#xlgo')?.addEventListener('click', () => { if (!IMP.running) runImport(P); });
 }
 /* one batch of leads; if the server runs out of time on it, save it again in smaller pieces */
 async function importLeadRows(rows, tot) {
@@ -378,7 +427,7 @@ async function importLeadRows(rows, tot) {
 async function runImport(P) {
   IMP.running = true;
   const steps = []; for (let i = 0; i < P.leads.length; i += 200) steps.push(['leads', P.leads.slice(i, i + 200)]);
-  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null]);
+  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null], ['targets', P.targets]);
   const tot = { new: 0, updated: 0, no_owner: 0 };
   try {
     for (let i = 0; i < steps.length; i++) {
@@ -386,10 +435,11 @@ async function runImport(P) {
       IMP.status = `<div class="pbar info" style="margin-top:12px"><i style="width:${Math.round((i / steps.length) * 100)}%"></i></div><p class="faint">Saving ${k}… step ${i + 1} of ${steps.length}. Keep this page open.</p>`; impPaint();
       if (k === 'leads') await importLeadRows(rows, tot);
       else if (k === 'projects' && rows.length) await DB.rpc('import_projects', { p_rows: rows });
-      else if (k === 'revenue' && rows.length) await DB.rpc('import_revenue', { p_rows: rows });
+      else if (k === 'revenue' && rows.length) await DB.rpc('import_revenue', { p_rows: rows, p_scope: P.revScope });
+      else if (k === 'targets' && rows.length) { const r = await DB.rpc('import_targets', { p_fy: P.fy, p_rows: rows }); if (r?.not_matched?.length) tot.miss = r.not_matched; if (P.split) await DB.setSetting('academy_split', P.split); }
       else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.rpc('import_admissions', { p_adm: P.adm, p_src: P.src });
     }
-    IMP.status = `<div class="note good" style="margin-top:12px"><b>Import finished.</b> ${nfmt(tot.new)} new and ${nfmt(tot.updated)} updated leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines, ${nfmt(P.counts.admissions)} admissions rows.${tot.no_owner ? ` ${nfmt(tot.no_owner)} have no owner yet.` : ''}</div><button class="btn primary" id="xlre">Reload the CRM</button>`;
+    IMP.status = `<div class="note good" style="margin-top:12px"><b>Import finished.</b> ${nfmt(tot.new)} new and ${nfmt(tot.updated)} updated leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines, ${nfmt(P.counts.admissions)} admissions rows${P.targets.length ? `, ${TG.label(P.fy)} targets` : ''}.${tot.miss ? ` Targets skipped for: ${esc(tot.miss.join(', '))}.` : ''}${tot.no_owner ? ` ${nfmt(tot.no_owner)} name someone who is not in the CRM: they are marked as handed over and stay with their current owner where they had one.` : ''}</div><button class="btn primary" id="xlre">Reload the CRM</button>`;
   } catch (e) {
     IMP.status = `<div class="note bad" style="margin-top:12px"><b>Stopped:</b> ${esc(e.message || String(e))}. Nothing is doubled if you run it again.</div>`;
   }
