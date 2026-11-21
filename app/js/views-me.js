@@ -105,7 +105,8 @@ const TG = {
     return { r, target, achieved, gap, days, perDay: gap / days, avgDeal, winRate, l2w, dealsNeeded, dealsToWork: dealsNeeded ? Math.ceil(dealsNeeded / winRate) : 0, leadsToWork: dealsNeeded ? Math.ceil(dealsNeeded / l2w) : 0, easiest, cover: gap ? Math.min(100, pct(cum, gap)) : 100, weighted, open, hot, pace: target ? achieved / target - TG.elapsed(r) : 0 };
   },
 };
-const toneFor = (p, el = 1) => (p >= 100 ? 'good' : p >= el * 100 - 10 ? 'info' : p >= el * 60 ? 'warn' : 'bad');
+/* the colour of a progress figure: by how far along it is */
+const toneFor = (p) => (p >= 100 ? 'good' : p >= 70 ? 'info' : p >= 40 ? 'warn' : 'bad');
 
 /* the target as a road with milestones (quarters, months, weeks or days) for the period in the filter */
 function milestones(P) {
@@ -170,7 +171,7 @@ function donut(parts, centre, sub = '') {
   const R = 52, C = 2 * Math.PI * R; let off = 0;
   const arcs = parts.map((x, i) => { const len = (x.value / tot) * C; const a = `<circle r="${R}" cx="70" cy="70" fill="none" stroke="${x.color || PAL[i % PAL.length]}" stroke-width="20" stroke-dasharray="${Math.max(len - 1.5, 0.5)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"><title>${esc(x.label)}: ${inr(x.value)}</title></circle>`; off += len; return a; }).join('');
   return `<div class="donut"><svg viewBox="0 0 140 140" role="img" aria-label="${esc(centre)}"><circle r="${R}" cx="70" cy="70" fill="none" stroke="var(--hair)" stroke-width="20"/>${arcs}<text x="70" y="68" text-anchor="middle" class="dv">${esc(centre)}</text><text x="70" y="86" text-anchor="middle" class="ds">${esc(sub)}</text></svg>
-    <ul class="dleg">${parts.slice(0, 8).map((x, i) => `<li><i style="background:${x.color || PAL[i % PAL.length]}"></i><span class="grow">${esc(x.label)}</span><b>${inr(x.value)}</b><span class="faint">${Math.round((x.value / tot) * 100)}%</span></li>`).join('')}${parts.length > 8 ? `<li class="faint">+${parts.length - 8} more</li>` : ''}</ul></div>`;
+    <ul class="dleg">${parts.slice(0, 8).map((x, i) => `<li ${x.rd ? `data-rd="${x.rd}" class="click" title="See where this comes from"` : ''}><i style="background:${x.color || PAL[i % PAL.length]}"></i><span class="grow">${esc(x.label)}</span><b>${inr(x.value)}</b><span class="faint">${Math.round((x.value / tot) * 100)}%</span></li>`).join('')}${parts.length > 8 ? `<li class="faint">+${parts.length - 8} more</li>` : ''}</ul></div>`;
 }
 function hbars(rows, fmt = inr, none = 'Nothing to show.') {
   const max = Math.max(1, ...rows.map((x) => x.value));
@@ -186,12 +187,13 @@ const REV_PERS = [['today', 'Today'], ['week', 'This week'], ['month', 'This mon
 function tva(u, P) {
   const now = new Date(); const t = TG.inRange(u, P); const due = TG.inRange(u, { from: P.from, to: new Date(Math.min(now.getTime(), P.to.getTime())) });
   const a = TG.achieved(u, P); const c = TG.collected(u, P); const d = TG.due(u, P);
-  return { t, due, a, c, d, gap: Math.max(0, t - a), lag: due - a, p: t ? Math.round((a / t) * 100) : null };
+  return { t, due, a, c, d, gap: Math.max(0, t - a), lag: due - a, p: t ? Math.round((a / t) * 100) : null, u, P };
 }
 const pctChip = (x, P) => (x.p == null ? '<span class="faint">—</span>' : `<span class="chip tone ${toneFor(x.p, TG.elapsed(P))}">${x.p}%</span>`);
 const lagCell = (x) => (!x.t ? '<span class="faint">—</span>' : x.lag > 0.5 ? `<span class="bad">−${inr(x.lag)}</span>` : `<span class="good">+${inr(-x.lag)}</span>`);
 function tvaTable(head, rows, P, total) {
-  const tr = (r, cls = '') => `<tr class="${cls}">${r.cells}<td class="n">${r.x.t ? inr(r.x.t) : '—'}</td><td class="n"><b>${inr(r.x.a)}</b></td><td class="n">${inr(r.x.c)}</td><td class="n">${r.x.d ? inr(r.x.d) : '—'}</td><td class="n">${lagCell(r.x)}</td><td class="n">${pctChip(r.x, P)}</td><td class="pcol"><span class="pbar ${r.x.p == null ? 'mute' : toneFor(r.x.p, TG.elapsed(P))}"><i style="width:${clamp(r.x.p || 0, 0, 100)}%"></i><em style="left:${Math.round(TG.elapsed(P) * 100)}%"></em></span></td></tr>`;
+  const dr = (r, v, status, what) => (r.x.u && v ? rdNum(inr(v), { title: `${what} · ${(r.label || String(r.cells).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 60)} · ${P.label}`, u: r.x.u, r: P, status }) : inr(v));
+  const tr = (r, cls = '') => `<tr class="${cls}">${r.cells}<td class="n">${r.x.t ? inr(r.x.t) : '—'}</td><td class="n"><b>${dr(r, r.x.a, null, 'Achieved')}</b></td><td class="n">${dr(r, r.x.c, 'Collected', 'Collected')}</td><td class="n">${r.x.d ? dr(r, r.x.d, 'Pending PO', 'Balance due') : '—'}</td><td class="n">${lagCell(r.x)}</td><td class="n">${pctChip(r.x, P)}</td><td class="pcol"><span class="pbar ${r.x.p == null ? 'mute' : toneFor(r.x.p, TG.elapsed(P))}"><i style="width:${clamp(r.x.p || 0, 0, 100)}%"></i><em style="left:${Math.round(TG.elapsed(P) * 100)}%"></em></span></td></tr>`;
   return `<div class="tablewrap free"><table class="tva"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}<th class="n">Target</th><th class="n">Achieved</th><th class="n">Collected</th><th class="n">Balance due</th><th class="n">Ahead / behind</th><th class="n">%</th><th class="pcol"></th></tr></thead>
     <tbody>${rows.map((r) => tr(r)).join('') || `<tr><td colspan="${head.length + 7}" class="faint">Nothing to show.</td></tr>`}${total ? tr(total, 'tot') : ''}</tbody></table></div>`;
 }
@@ -213,8 +215,8 @@ function revOverview(b) {
   let cumA = 0, cumT = 0; const ym0 = localDate(new Date()).slice(0, 7);
   const mrows = months.map((m) => { const per = codes.map((c) => TG.achieved({ dept: c, pid }, mr(m))); const a = sum(per); const t = TG.inRange(u, mr(m)); const c = TG.collected(u, mr(m)); cumA += a; cumT += t; return { m, per, a, t, c, cumA, cumT, past: m <= ym0 }; });
   const booked = mrows.map((x) => x.a); const collected = mrows.map((x) => x.c); const tgt = mrows.map((x) => x.t);
-  const seg = Object.entries(groupBy(TG.lines(u, R), (x) => (codes.length > 1 ? x.e.department + ' · ' : '') + (x.e.segment || 'Not stated'))).map(([label, a]) => ({ label, value: sum(a, (x) => x.w * x.e.amount) })).sort((a, c) => c.value - a.value);
-  const byDept = codes.map((c) => ({ label: dept(c).name, value: TG.achieved({ dept: c, pid }, R), color: dept(c).color }));
+  const seg = Object.entries(groupBy(TG.lines(u, R), (x) => (codes.length > 1 ? x.e.department + ' · ' : '') + (x.e.segment || 'Not stated'))).map(([label, a]) => ({ label, value: sum(a, (x) => x.w * x.e.amount), rd: RD.put({ title: label + ' · ' + TG.label(fy), u: { dept: a[0].e.department, seg: a[0].e.segment, pid }, r: R }) })).sort((a, c) => c.value - a.value);
+  const byDept = codes.map((c) => ({ label: dept(c).name, value: TG.achieved({ dept: c, pid }, R), color: dept(c).color, rd: RD.put({ title: dept(c).name + ' · ' + TG.label(fy), u: { dept: c, pid }, r: R }) }));
   const recv = pid ? 0 : sum(codes, (c) => M.receivables(c).amount);
   const cli = {}; TG.lines(u, R).forEach(({ e, w }) => { const k = e.client || 'Not stated'; cli[k] = (cli[k] || 0) + w * Number(e.amount || 0); });
   const top = Object.entries(cli).filter(([k]) => !/^not stated|^individual candidates/i.test(k)).map(([label, value]) => ({ label, value })).sort((a, c) => c.value - a.value).slice(0, 8);
@@ -223,9 +225,9 @@ function revOverview(b) {
       <span class="faint">${esc(P.label)} · ${fmtDate(P.from)} – ${fmtDate(new Date(P.to.getTime() - 864e5))}${['today', 'week'].includes(revPer) && !dated ? ' · sheet revenue is monthly, so a day or week shows only payments recorded in the CRM' : ''}</span></div>
     <div class="kpis exec">
       ${kpi({ label: 'Target · ' + P.label, value: X.t ? inr(X.t) : '—', sub: X.t ? `${inr(X.due)} due by today at an even pace` : 'No target set' })}
-      ${kpi({ label: 'Achieved (booked)', value: inr(X.a), sub: X.t ? `${X.p}% of target · ${Math.round(TG.elapsed(P) * 100)}% of the period gone` : 'Collected + balance due', meter: X.t ? X.p : undefined, tone: tn })}
-      ${kpi({ label: 'Collected', value: inr(X.c), sub: 'Money received' })}
-      ${kpi({ label: 'Balance due', value: inr(X.d), sub: 'Sale done, payment to come' })}
+      ${kpi({ label: 'Achieved (booked)', value: rdNum(inr(X.a), { title: 'Achieved · ' + P.label, u, r: P }), sub: X.t ? `${X.p}% of target · ${Math.round(TG.elapsed(P) * 100)}% of the period gone` : 'Collected + balance due', meter: X.t ? X.p : undefined, tone: tn })}
+      ${kpi({ label: 'Collected', value: rdNum(inr(X.c), { title: 'Collected · ' + P.label, u, r: P, status: 'Collected' }), sub: 'Money received' })}
+      ${kpi({ label: 'Balance due', value: rdNum(inr(X.d), { title: 'Balance due · ' + P.label, u, r: P, status: 'Pending PO' }), sub: 'Sale done, payment to come' })}
       ${kpi({ label: behind ? 'Behind target by' : 'Ahead of target by', value: X.t ? inr(Math.abs(X.lag)) : '—', sub: X.t ? `against ${inr(X.due)} due by today` : '', tone: X.t ? (behind ? 'bad' : 'good') : '' })}
       ${kpi({ label: 'Needed per working day', value: X.gap ? inr(X.gap / days) : X.t ? 'Target met' : '—', sub: X.gap ? `${inr(X.gap)} to go · ${nfmt(days)} working day${days === 1 ? '' : 's'} left` : '' })}
     </div>
@@ -239,7 +241,7 @@ function revOverview(b) {
     <section class="glass panel"><div class="panel-head"><h2><span class="gtag blue">Month by month</span> ${TG.label(fy)}</h2><span class="sub">Booked by process, the target at an even pace, and the running gap</span></div>
       ${barChart({ labels: months.map(monShort), series: [{ name: 'Booked', color: '#2676dc', values: booked }, { name: 'Collected', color: '#8d3f91', values: collected }], target: tgt.some(Boolean) ? tgt : null })}
       <div class="tablewrap free"><table class="mtab"><thead><tr><th>Month</th>${codes.map((c) => `<th class="n">${esc(dept(c).name)}</th>`).join('')}<th class="n">Booked</th><th class="n">Collected</th><th class="n">Target</th><th class="n">Year to date</th><th class="n">Behind / ahead</th></tr></thead><tbody>
-        ${mrows.map((x) => `<tr class="${x.m === ym0 ? 'cur' : ''} ${x.past ? '' : 'future'}"><td>${monShort(x.m)}${x.m === ym0 ? ' <span class="chip tone info">now</span>' : ''}</td>${x.per.map((v0) => `<td class="n">${v0 ? inr(v0) : '<span class="faint">—</span>'}</td>`).join('')}<td class="n"><b>${x.a ? inr(x.a) : '—'}</b></td><td class="n">${x.c ? inr(x.c) : '—'}</td><td class="n">${x.t ? inr(x.t) : '—'}</td><td class="n">${x.past ? inr(x.cumA) : ''}</td><td class="n">${x.past && x.cumT ? (x.cumT - x.cumA > 0.5 ? `<span class="bad">−${inr(x.cumT - x.cumA)}</span>` : `<span class="good">+${inr(x.cumA - x.cumT)}</span>`) : ''}</td></tr>`).join('')}
+        ${mrows.map((x) => `<tr class="${x.m === ym0 ? 'cur' : ''} ${x.past ? '' : 'future'}"><td>${monShort(x.m)}${x.m === ym0 ? ' <span class="chip tone info">now</span>' : ''}</td>${x.per.map((v0, i) => `<td class="n">${v0 ? rdNum(inr(v0), { title: `${dept(codes[i]).name} · ${monShort(x.m)}`, u: { dept: codes[i], pid }, r: mr(x.m) }) : '<span class="faint">—</span>'}</td>`).join('')}<td class="n"><b>${x.a ? rdNum(inr(x.a), { title: 'Booked · ' + monShort(x.m), u, r: mr(x.m) }) : '—'}</b></td><td class="n">${x.c ? rdNum(inr(x.c), { title: 'Collected · ' + monShort(x.m), u, r: mr(x.m), status: 'Collected' }) : '—'}</td><td class="n">${x.t ? inr(x.t) : '—'}</td><td class="n">${x.past ? inr(x.cumA) : ''}</td><td class="n">${x.past && x.cumT ? (x.cumT - x.cumA > 0.5 ? `<span class="bad">−${inr(x.cumT - x.cumA)}</span>` : `<span class="good">+${inr(x.cumA - x.cumT)}</span>`) : ''}</td></tr>`).join('')}
         <tr class="tot"><td>${TG.label(fy)}</td>${codes.map((_, i) => `<td class="n">${inr(sum(mrows, (x) => x.per[i]))}</td>`).join('')}<td class="n">${inr(sum(booked))}</td><td class="n">${inr(sum(collected))}</td><td class="n">${inr(sum(tgt))}</td><td></td><td></td></tr></tbody></table></div></section>
     <div class="grid g3">
       <section class="glass panel"><div class="panel-head"><h2><span class="gtag violet">Processes</span> Booked</h2><span class="sub">${TG.label(fy)}</span></div>${donut(byDept, inrShort(sum(byDept, (x) => x.value)), 'booked')}</section>

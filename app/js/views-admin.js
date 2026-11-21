@@ -427,7 +427,7 @@ async function importLeadRows(rows, tot) {
 async function runImport(P) {
   IMP.running = true;
   const steps = []; for (let i = 0; i < P.leads.length; i += 200) steps.push(['leads', P.leads.slice(i, i + 200)]);
-  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null], ['targets', P.targets]);
+  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null], ['targets', P.targets], ['accounts', P.leads.length ? [1] : []]);
   const tot = { new: 0, updated: 0, no_owner: 0 };
   try {
     for (let i = 0; i < steps.length; i++) {
@@ -436,6 +436,7 @@ async function runImport(P) {
       if (k === 'leads') await importLeadRows(rows, tot);
       else if (k === 'projects' && rows.length) await DB.call('import_projects', { p_rows: rows });
       else if (k === 'revenue' && rows.length) await DB.call('import_revenue', { p_rows: rows, p_scope: P.revScope });
+      else if (k === 'accounts' && rows.length) { try { await DB.call('link_accounts', {}); } catch (_) { /* accounts are a convenience; the import itself is done */ } }
       else if (k === 'targets' && rows.length) { const r = await DB.call('import_targets', { p_fy: P.fy, p_rows: rows }); if (r?.not_matched?.length) tot.miss = r.not_matched; if (P.split) await DB.setSetting('academy_split', P.split); }
       else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.call('import_admissions', { p_adm: P.adm, p_src: P.src });
     }

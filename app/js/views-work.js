@@ -216,6 +216,8 @@ function projMoney(p) {
   return { order, received, claimed, pending: Math.max(0, order - received) };
 }
 /* ================= Collections: money still to come in, by project, and the Pending PO lines ================= */
+/* the projects behind a Collections figure */
+const projTable = (rows, k) => tbl(['Project', 'Client', 'Order value', 'Received', 'Claimed', 'Pending'], rows.slice().sort((a, b) => b.m[k] - a.m[k]).map(({ p, m, l }) => `<tr ${l ? `class="click" data-lead="${l.id}"` : ''}><td><b class="mono">${esc(p.project_code || '—')}</b> ${deptChip(p.dept)}</td><td>${esc(p.name)}</td><td class="n">${inr(m.order)}</td><td class="n">${inr(m.received)}</td><td class="n">${m.claimed ? inr(m.claimed) : '—'}</td><td class="n"><b>${inr(m.pending)}</b></td></tr>`), rows.length ? `<tr class="tot"><td colspan="2">Total · ${rows.length} projects</td><td class="n">${inr(sum(rows, (x) => x.m.order))}</td><td class="n">${inr(sum(rows, (x) => x.m.received))}</td><td class="n">${inr(sum(rows, (x) => x.m.claimed))}</td><td class="n">${inr(sum(rows, (x) => x.m.pending))}</td></tr>` : '');
 VIEWS.collections = {
   title: 'Collections', sub: 'Pending payments: order value, what came in and what is still due, by project. Record a payment and it moves to Revenue.',
   render(el) {
@@ -228,10 +230,10 @@ VIEWS.collections = {
     const D = new Map();
     el.innerHTML = `${filterBar({ person: false, period: false })}
       <div class="kpis">
-        ${kpi({ label: 'Pending from projects', value: inr(sum(due, (x) => x.m.pending)), sub: `${nfmt(due.length)} projects with money due` })}
-        ${kpi({ label: 'Received to date', value: inr(sum(rows, (x) => x.m.received)), sub: `of ${inr(sum(rows, (x) => x.m.order))} ordered` })}
-        ${kpi({ label: 'Claimed, to verify', value: inr(sum(rows, (x) => x.m.claimed)), sub: 'Recorded by sales, waiting for Finance' })}
-        ${kpi({ label: 'Balance due in the ledger', value: inr(sum(po, (e) => e.amount)), sub: `${nfmt(po.length)} lines in Revenue` })}
+        ${kpi({ label: 'Pending from projects', value: rdNum(inr(sum(due, (x) => x.m.pending)), { title: 'Pending from projects', html: projTable(due, 'pending') }), sub: `${nfmt(due.length)} projects with money due` })}
+        ${kpi({ label: 'Received to date', value: rdNum(inr(sum(rows, (x) => x.m.received)), { title: 'Received to date', html: projTable(rows, 'received') }), sub: `of ${inr(sum(rows, (x) => x.m.order))} ordered` })}
+        ${kpi({ label: 'Claimed, to verify', value: rdNum(inr(sum(rows, (x) => x.m.claimed)), { title: 'Claimed, to verify', html: projTable(rows.filter((x) => x.m.claimed), 'claimed') }), sub: 'Recorded by sales, waiting for Finance' })}
+        ${kpi({ label: 'Balance due in the ledger', value: rdNum(inr(sum(po, (e) => e.amount)), { title: 'Balance due in the ledger', u: { dept: ST.dept }, r: { key: 'all', from: new Date(2000, 0, 1), to: new Date(2100, 0, 1) }, status: 'Pending PO' }), sub: `${nfmt(po.length)} lines in Revenue` })}
       </div>
       <section class="glass panel"><div class="panel-head"><h2><span class="gtag red">${svg('pay')} Money due</span> By project</h2><span class="sub">Order value minus what has come in · biggest first</span></div>
         ${rows.length ? tbl(['Project', 'Client', 'Product', 'Ordered', 'Order value', 'Received', 'Pending', 'Delivered', 'Status', ''], rows.map(({ p, m, l }) => `<tr><td><b class="mono">${esc(p.project_code || '—')}</b><div class="s">${deptChip(p.dept)}</div></td><td><div class="t">${esc(p.name)}</div>${l ? `<div class="s"><a href="#" data-lead="${l.id}">${esc(l.ref_id || l.lead_no)}</a> · ${esc(L.ownerLabel(l))}</div>` : ''}</td><td>${esc(l ? L.line(l) : '')}</td><td>${p.order_date ? fmtDate(p.order_date) + `<div class="s">${age(p.order_date)} days ago</div>` : '—'}</td><td class="n">${inr(m.order)}</td><td class="n">${inr(m.received)}${m.claimed ? `<div class="s warn">${inr(m.claimed)} claimed</div>` : ''}</td><td class="n">${m.pending ? `<b class="bad">${inr(m.pending)}</b>` : '<span class="chip good">Paid</span>'}</td><td>${p.delivered ? `<span class="chip ${/^yes$/i.test(p.delivered) ? 'good' : /partial/i.test(p.delivered) ? 'warn' : ''}">${esc(p.delivered)}</span>` : '—'}</td><td><span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></td><td class="n">${m.pending && p.lead_id ? `<button class="btn small primary" data-colpay="${p.id}">Record payment</button>` : ''}</td></tr>`)) : empty('No projects yet', 'Won deals become projects. Import the sales sheet in Settings → Import to load them.')}

@@ -39,7 +39,44 @@ const QUICK = {
   otherdept: ['Other department enquiries', (l) => !!l.routed_dept && !/^RPTO/.test(l.routed_dept), null],
   nofee: ['Called, fee not recorded', (l) => L.open(l) && !l.is_deal && l.last_contact_at && daysAgo(l.last_contact_at) <= 30 && !l.fee_disclosed && S.list(l.funnel, 'deal').some((s) => s.needs_fee), 'leads'],
 };
-const LF = { q: '', state: 'open', quick: '', sort: '', dir: -1, per: 20, page: 1, col: {}, tab: '' };
+const LF = { q: '', state: 'open', quick: '', sort: '', dir: -1, per: 20, page: 1, col: {}, tab: '', f: {}, fOpen: false, view: '' };
+/* lead-generation filters: what a head of lead generation slices a calling list by */
+const daysSince = (d) => (d ? (Date.now() - new Date(d)) / 864e5 : Infinity);
+const tierKey = (t) => String(t || '').slice(0, 2);
+const LFILT = {
+  tier: (l, v) => v.includes(tierKey(l.campaign_tier) || '—'),
+  temp: (l, v) => v.includes(l.temperature || l.ai_band || '—'),
+  stage: (l, v) => v.includes(l.stage),
+  owner: (l, v) => v.includes(L.ownerLabel(l)),
+  funnel: (l, v) => v.includes(l.funnel),
+  prod: (l, v) => v.includes(L.line(l) || '—'),
+  source: (l, v) => v.includes(l.source || '—'),
+  city: (l, v) => v.includes(l.city || '—'),
+  enq: (l, v) => { const d = daysSince(l.enquiry_date || l.created_at); return v === '7' ? d <= 7 : v === '30' ? d <= 30 : v === '90' ? d <= 90 : v === 'fy' ? M.inR(l.enquiry_date || l.created_at, TG.per('fy')) : v === 'old' ? d > 180 : true; },
+  fu: (l, v) => { const n = l.next_followup_at; const t = n ? localDate(n) : ''; const today = todayStr(); return v === 'over' ? n && new Date(n) < new Date() : v === 'today' ? t === today : v === 'week' ? n && t >= today && daysSince(n) >= -7 : v === 'none' ? !n : true; },
+  att: (l, v) => { const a = Number(l.call_attempts) || 0; return v === '0' ? !a : v === '1' ? a >= 1 && a <= 2 : v === '3' ? a >= 3 && a <= 5 : v === '6' ? a >= 6 : true; },
+  lc: (l, v) => { const d = daysSince(l.last_contact_at); return v === 'never' ? !l.last_contact_at : v === '7' ? d > 7 : v === '30' ? d > 30 : v === 'recent' ? d <= 7 : true; },
+  inh: (l, v) => (v === 'yes' ? l.inherited : v === 'new' ? l.inherited && !l.touched_at : v === 'worked' ? l.inherited && !!l.touched_at : v === 'no' ? !l.inherited : true),
+  contact: (l, v) => (v === 'email' ? !!l.email : v === 'phone' ? !!l.phone : v === 'both' ? !!l.email && !!l.phone : v === 'none' ? !l.email && !l.phone : true),
+  elig: (l, v) => (l.eligible || 'Unknown') === v,
+  score: (l, v) => { const sc = Number(l.priority_score ?? l.ai_score ?? -1); return v === '8' ? sc >= 8 : v === '5' ? sc >= 5 : v === 'low' ? sc >= 0 && sc < 5 : true; },
+  lang: (l, v) => v.includes(l.language || '—'),
+};
+const lfOn = () => Object.entries(LF.f).filter(([, v]) => (Array.isArray(v) ? v.length : v));
+const lfOk = (l) => lfOn().every(([k, v]) => !LFILT[k] || LFILT[k](l, v));
+/* one-click views a calling team works from */
+const LVIEWS = [
+  ['callnow', 'Call now · P1 hot', { tier: ['P1'] }, 'flame'],
+  ['warm7', 'Warm (P2), quiet 7+ days', { tier: ['P2'], lc: '7' }, 'clock'],
+  ['never', 'Never reached', { att: '0' }, 'phone'],
+  ['retry', 'Retry unreachable (P4)', { tier: ['P4'] }, 'phone'],
+  ['winback', 'Win-back (R1)', { tier: ['R1'] }, 'up'],
+  ['over', 'Follow-up overdue', { fu: 'over' }, 'warn'],
+  ['today', 'Follow-up today', { fu: 'today' }, 'cal'],
+  ['hot8', 'Priority score 8+', { score: '8' }, 'spark'],
+  ['handed', 'Handed over, untouched', { inh: 'new' }, 'swap'],
+  ['fresh', 'New in 7 days', { enq: '7' }, 'plus'],
+];
 try { const pp = Number(localStorage.getItem('garuda-ld-per')); if ([20, 50, 100].includes(pp)) LF.per = pp; } catch (_) { /* no storage */ }
 /* a follow-up is an open lead in a follow-up status: it lives in Follow-ups, not in Leads */
 const isFU = (l) => !l.is_deal && L.open(l) && /follow/i.test(l.stage || '');
@@ -55,6 +92,7 @@ function ldRows(tab) {
   return M.leads().filter((l) => {
     if (!!l.is_deal !== deal) return false;
     if (fu && !isFU(l)) return false;
+    if (!lfOk(l)) return false;
     if (tab === 'leads' && !q && LF.state === 'open' && isFU(l)) return false;
     if (q && !q[1](l)) return false;
     if (!q) { if (LF.state === 'open' && !L.open(l)) return false; if (LF.state === 'won' && !L.won(l)) return false; if (LF.state === 'lost' && !L.lost(l)) return false; if (LF.state === 'closed' && !L.closed(l)) return false; }
@@ -124,9 +162,10 @@ function ldList(box, tab, rer) {
     return `<td>${esc(cellVal(l, key))}</td>`;
   };
   const quick = LF.quick && QUICK[LF.quick];
-  box.innerHTML = `<div class="filters" style="margin:10px 0">
+  const stCount = (k0) => { const keep = LF.state; LF.state = k0; const n0 = ldRows(tab).length; LF.state = keep; return n0; };
+  box.innerHTML = `${lfBar(tab)}<div class="filters" style="margin:10px 0">
       <input type="search" id="lq" placeholder="Search name, phone, email, company…" value="${esc(LF.q)}" aria-label="Search">
-      ${quick ? `<span class="chip acc qchip">${esc(quick[0])} <button class="btn ghost small" id="qx" aria-label="Clear">${svg('x')}</button></span>` : tab === 'followups' ? '' : `<div class="seg">${[['open', 'Open'], ['won', 'Won'], ['lost', 'Lost'], ['closed', 'Duplicate / other'], ['all', 'All']].map(([k0, t]) => `<button data-state="${k0}" aria-pressed="${LF.state === k0}">${t}</button>`).join('')}</div>`}
+      ${quick ? `<span class="chip acc qchip">${esc(quick[0])} <button class="btn ghost small" id="qx" aria-label="Clear">${svg('x')}</button></span>` : tab === 'followups' ? '' : `<div class="seg">${[['open', 'Open'], ['won', 'Won'], ['lost', 'Lost'], ['closed', 'Duplicate / other'], ['all', 'All']].map(([k0, t]) => `<button data-state="${k0}" aria-pressed="${LF.state === k0}">${t} <span class="faint">${nfmt(stCount(k0))}</span></button>`).join('')}</div>`}
       <span class="faint" style="font-size:12.5px">${nfmt(total)} ${tab === 'followups' ? 'follow-ups' : tab}${tab === 'deals' ? ` · ${inr(sum(rows, (l) => l.value))}` : ''}</span>${toneLegend()}</div>
     <div class="row bulk" id="bulk" hidden><b id="bulkn"></b>
       ${canReassign() ? `<select id="bassign"><option value="">Assign to…</option>${assignablePeople().map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`).join('')}</select>` : ''}
@@ -138,6 +177,7 @@ function ldList(box, tab, rer) {
       </tbody></table></div>${pager(total, pages, from, shown.length)}
       <div class="cards-m">${shown.map((l) => `<button class="glass lcard tone-${leadTone(l) || 'none'}" data-lead="${l.id}">${L.company(l) && tab !== 'deals' ? `<span class="s org">${esc(L.company(l))}</span>` : ''}<span class="row between"><b>${esc(tab === 'deals' ? L.company(l) || l.name : l.name)}</b>${stageChip(l)}</span><span class="s">${funnelChip(l.funnel)} ${esc(tab === 'deals' ? inr(l.value) + (l.expected_close ? ' · closes ' + fmtDate(l.expected_close) : '') : tab === 'followups' && l.next_followup_at ? 'next ' + fmtDT(l.next_followup_at) : l.phone || '')} · ${esc(L.ownerLabel(l))}</span>${L.latestRemark(l) ? `<span class="s rem">${esc(L.latestRemark(l))}</span>` : ''}</button>`).join('')}</div>`
       : `<div class="tablewrap ldt free"><table><thead><tr><th class="ck"></th>${cols.map(th).join('')}</tr><tr class="cf"><th></th>${cols.map(([key]) => `<th>${colFilter(key)}</th>`).join('')}</tr></thead></table></div>${empty(`No ${tab} match`, tab === 'deals' ? 'Convert a lead to a deal from its record, or change the filters.' : 'Change the filters or add a new lead.')}`}`;
+  bindLF(box, () => ldList(box, tab, rer));
   const keepFocus = (sel0) => { const i = box.querySelector(sel0); if (i) { i.focus(); i.setSelectionRange?.(i.value.length, i.value.length); } };
   box.querySelector('#lq').oninput = (e) => { LF.q = e.target.value; clearTimeout(ldList._t); ldList._t = setTimeout(() => { LF.page = 1; ldList(box, tab, rer); keepFocus('#lq'); }, 250); };
   box.querySelectorAll('[data-state]').forEach((b) => (b.onclick = () => { LF.state = b.dataset.state; LF.page = 1; ldList(box, tab, rer); }));
@@ -162,6 +202,56 @@ function ldList(box, tab, rer) {
   box.querySelector('#bexp')?.addEventListener('click', () => { const ids = new Set(chosen()); downloadCSV('garuda-' + tab, rows.filter((l) => ids.has(l.id)).map(leadCsv)); });
   bindLeadClicks(box);
 }
+/* the filter panel above the list */
+function lfPanel(tab) {
+  const base = M.leads().filter((l) => !!l.is_deal === (tab === 'deals') && (tab !== 'followups' || isFU(l)));
+  const top = (fn, n = 40) => Object.entries(groupBy(base, fn)).map(([k, a]) => [k, a.length]).sort((a, b) => b[1] - a[1]).slice(0, n);
+  const ms = (k, label, list, fmt = (x) => x) => `<div class="lf-f"><span class="lf-l">${label}</span><div class="lf-chips">${list.map(([v0, n]) => `<button type="button" class="lfc ${(LF.f[k] || []).includes(v0) ? 'on' : ''}" data-lfm="${k}" data-v="${esc(v0)}">${esc(fmt(v0))} <small>${nfmt(n)}</small></button>`).join('')}</div></div>`;
+  const ss = (k, label, list) => `<label class="lf-f"><span class="lf-l">${label}</span><select data-lfs="${k}">${opts(list, LF.f[k] || '', 'Any')}</select></label>`;
+  const msel = (k, label, list) => `<label class="lf-f"><span class="lf-l">${label}</span><select data-lfx="${k}">${opts(list.map(([v0, n]) => [v0, `${v0} (${nfmt(n)})`]), (LF.f[k] || [])[0] || '', 'Any')}</select></label>`;
+  const tiers = TIERS.map((t) => [tierKey(t), base.filter((l) => tierKey(l.campaign_tier) === tierKey(t)).length]).filter(([, n]) => n);
+  const tierName = Object.fromEntries(TIERS.map((t) => [tierKey(t), t.replace(/^[A-Z]\d\s*-?\s*/, '')]));
+  return `<div class="lfp glass">
+    ${tiers.length ? ms('tier', 'Campaign tier', tiers, (k) => `${k} · ${tierName[k] || ''}`) : ''}
+    ${ms('temp', 'Temperature', top((l) => l.temperature || l.ai_band || '—'))}
+    <div class="lf-grid">
+      ${msel('stage', tab === 'deals' ? 'Stage' : 'Status', top((l) => l.stage))}
+      ${msel('owner', 'Assigned to', top((l) => L.ownerLabel(l)))}
+      ${ST.dept === 'All' ? msel('funnel', 'Process', top((l) => l.funnel)) : ''}
+      ${msel('prod', 'Product / course', top((l) => L.line(l) || '—'))}
+      ${msel('source', 'Lead source', top((l) => l.source || '—'))}
+      ${msel('city', 'Location', top((l) => l.city || '—', 60))}
+      ${ss('enq', 'Enquiry date', [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['fy', 'This financial year'], ['old', 'Older than 6 months']])}
+      ${ss('fu', 'Next follow-up', [['over', 'Overdue'], ['today', 'Today'], ['week', 'Next 7 days'], ['none', 'Not set']])}
+      ${ss('att', 'Call attempts', [['0', 'None yet'], ['1', '1–2'], ['3', '3–5'], ['6', '6 or more']])}
+      ${ss('lc', 'Last contact', [['never', 'Never contacted'], ['recent', 'In the last 7 days'], ['7', 'More than 7 days ago'], ['30', 'More than 30 days ago']])}
+      ${ss('inh', 'Handed over', [['yes', 'All handed over'], ['new', 'Handed over, not worked yet'], ['worked', 'Handed over, worked since'], ['no', 'Not handed over']])}
+      ${ss('contact', 'Contact details', [['phone', 'Has a phone'], ['email', 'Has an email'], ['both', 'Phone and email'], ['none', 'Neither']])}
+      ${ss('score', 'Priority score', [['8', '8 and above'], ['5', '5 and above'], ['low', 'Below 5']])}
+      ${ss('elig', 'Eligible', [['Eligible', 'Eligible'], ['Not eligible', 'Not eligible'], ['Unknown', 'Not known']])}
+      ${msel('lang', 'Language', top((l) => l.language || '—'))}
+    </div>
+    <div class="row lf-foot"><button class="btn small ghost" type="button" id="lfclr">Clear all filters</button><button class="btn small primary" type="button" id="lfdone">Done</button></div></div>`;
+}
+function bindLF(box, rerList) {
+  const again = () => { LF.page = 1; LF.view = ''; rerList(); };
+  box.querySelectorAll('[data-lfm]').forEach((b) => (b.onclick = () => { const k = b.dataset.lfm; const a = new Set(LF.f[k] || []); a.has(b.dataset.v) ? a.delete(b.dataset.v) : a.add(b.dataset.v); LF.f = { ...LF.f, [k]: [...a] }; again(); }));
+  box.querySelectorAll('[data-lfs]').forEach((x) => (x.onchange = () => { LF.f = { ...LF.f, [x.dataset.lfs]: x.value }; again(); }));
+  box.querySelectorAll('[data-lfx]').forEach((x) => (x.onchange = () => { LF.f = { ...LF.f, [x.dataset.lfx]: x.value ? [x.value] : [] }; again(); }));
+  box.querySelector('#lfclr')?.addEventListener('click', () => { LF.f = {}; again(); });
+  box.querySelector('#lfdone')?.addEventListener('click', () => { LF.fOpen = false; rerList(); });
+  box.querySelector('#lftog')?.addEventListener('click', () => { LF.fOpen = !LF.fOpen; rerList(); });
+  box.querySelectorAll('[data-lv]').forEach((b) => (b.onclick = () => { const v0 = LVIEWS.find((x) => x[0] === b.dataset.lv); if (LF.view === v0[0]) { LF.f = {}; LF.view = ''; } else { LF.f = { ...v0[2] }; LF.view = v0[0]; } LF.page = 1; rerList(); }));
+  box.querySelectorAll('[data-lfx-rm]').forEach((b) => (b.onclick = () => { const k = b.dataset.lfxRm; const nf = { ...LF.f }; delete nf[k]; LF.f = nf; again(); }));
+}
+const LF_LABEL = { tier: 'Tier', temp: 'Temperature', stage: 'Status', owner: 'Assigned to', funnel: 'Process', prod: 'Product', source: 'Source', city: 'Location', enq: 'Enquiry', fu: 'Follow-up', att: 'Attempts', lc: 'Last contact', inh: 'Handed over', contact: 'Contact', elig: 'Eligible', score: 'Score', lang: 'Language' };
+function lfBar(tab) {
+  const on = lfOn();
+  return `<div class="lv-row" role="group" aria-label="Smart views">${LVIEWS.filter((v0) => tab !== 'deals' || ['over', 'today', 'hot8', 'fresh'].includes(v0[0])).map(([k, t, , ic]) => `<button type="button" class="lv ${LF.view === k ? 'on' : ''}" data-lv="${k}">${svg(ic)}${t}</button>`).join('')}</div>
+    <div class="lf-active"><button type="button" class="btn small ${LF.fOpen ? 'primary' : ''}" id="lftog">${svg('list')} Filters${on.length ? ` · ${on.length}` : ''}</button>
+      ${on.map(([k, v]) => `<span class="chip acc">${esc(LF_LABEL[k] || k)}: ${esc(Array.isArray(v) ? v.join(', ') : v)} <button class="btn ghost small" type="button" data-lfx-rm="${k}" aria-label="Remove">${svg('x')}</button></span>`).join('')}</div>
+    ${LF.fOpen ? lfPanel(tab) : ''}`;
+}
 /* rows per page and page numbers under the list */
 function pager(total, pages, from, n) {
   const p = LF.page; const nums = [...new Set([1, p - 2, p - 1, p, p + 1, p + 2, pages])].filter((x) => x >= 1 && x <= pages).sort((a, b) => a - b);
@@ -175,7 +265,8 @@ const leadCsv = (l) => ({ lead_no: l.lead_no, sheet_id: l.ref_id || '', departme
 
 /* ---------- Kanban: one department's statuses (leads) or stages (deals) ---------- */
 function kanban(box, tab, rer) {
-  const code = ST.dept !== 'All' ? ST.dept : ST.kbDept && DEPTS().some((d) => d.code === ST.kbDept) ? ST.kbDept : '';
+  const busiest = () => { const by = groupBy(ldRows(tab), (l) => l.funnel); return DEPTS().map((d) => d.code).sort((a, b) => (by[b]?.length || 0) - (by[a]?.length || 0))[0]; };
+  const code = ST.dept !== 'All' ? ST.dept : ST.kbDept && DEPTS().some((d) => d.code === ST.kbDept) ? ST.kbDept : busiest();
   if (!code) {
     box.innerHTML = `<div class="pickdept"><h3>Pick a department for the board</h3><p class="faint">Each department has its own ${tab === 'deals' ? 'deal stages' : 'lead statuses'}, so the Kanban shows one department at a time.</p><div class="row">${DEPTS().map((d) => `<button class="btn" data-kb="${esc(d.code)}" style="--dc:${esc(d.color)}"><i class="ddot"></i>${esc(d.name)}</button>`).join('')}</div></div>`;
     box.querySelectorAll('[data-kb]').forEach((b) => (b.onclick = () => { ST.kbDept = b.dataset.kb; saveUI(); rer(); }));
@@ -187,12 +278,13 @@ function kanban(box, tab, rer) {
   const rows = all.filter((l) => L.open(l) || LF.quick || daysAgo(L.stageAt(l)) <= 30);
   const cols = S.list(code, deal ? 'deal' : 'lead');
   const CAP = 60;
-  box.innerHTML = `<div class="filters" style="margin:10px 0">${ST.dept === 'All' ? `<span class="chip dept" style="--dc:${esc(deptColor(code))}">${esc(dept(code).name)}</span><button class="btn small ghost" id="kbch">Change department</button>` : ''}
+  box.innerHTML = `${lfBar(tab)}<div class="filters" style="margin:10px 0">${ST.dept === 'All' ? `<div class="seg" role="group" aria-label="Process">${DEPTS().map((d) => `<button data-kb="${esc(d.code)}" aria-pressed="${d.code === code}" style="--dc:${esc(d.color)}"><i class="ddot"></i>${esc(d.name)}</button>`).join('')}</div>` : ''}
       <input type="search" id="kq" placeholder="Search" value="${esc(LF.q)}" aria-label="Search">${LF.quick ? `<span class="chip acc qchip">${esc(QUICK[LF.quick][0])} <button class="btn ghost small" id="qx" aria-label="Clear">${svg('x')}</button></span>` : ''}
       <span class="faint" style="font-size:12px">Drag a card to change its ${deal ? 'stage' : 'status'}. Won asks for the final value; lost asks for a reason.</span></div>
     <div class="kanban">${cols.map((s) => { const a = rows.filter((l) => l.stage === s.key); return `<div class="kcol glass ${s.is_won ? 'won' : s.is_lost ? 'lost' : s.is_closed ? 'closed' : ''}" data-col="${esc(s.key)}"><div class="khead"><b class="gtag ${({ good: 'green', bad: 'red', warn: 'amber', info: s.kind === 'deal' ? 'violet' : 'blue' })[stageTone({ funnel: code, stage: s.key, is_deal: deal })]}">${esc(s.key)}</b><span class="faint">${nfmt(a.length)}${deal ? ' · ' + inr(sum(a, (l) => l.value)) : ''}${s.is_won || s.is_lost ? ' · last 30 days' : ''}</span>${deal && !s.is_lost ? `<span class="kp">${s.prob}%</span>` : ''}</div>
       <div class="kbody">${a.slice(0, CAP).map((l) => `<div class="kcard tone-${leadTone(l) || 'none'}" draggable="true" data-lead="${l.id}" data-id="${l.id}"><b>${esc(deal ? L.company(l) || l.name : l.name)}</b><span class="s">${esc(deal ? (L.company(l) ? l.name + ' · ' : '') + inr(l.value) : L.company(l) || l.phone || '')}</span><span class="s">${esc(L.ownerLabel(l))}${deal && l.expected_close ? ` · <span class="${l.expected_close < todayStr() && L.open(l) ? 'bad' : ''}">${fmtDate(l.expected_close)}</span>` : l.next_followup_at && L.open(l) ? ' · next ' + fmtDate(l.next_followup_at) : ''}</span></div>`).join('')}${a.length > CAP ? `<p class="faint" style="font-size:12px;text-align:center">+${nfmt(a.length - CAP)} more · use List to see all</p>` : ''}</div></div>`; }).join('')}</div>`;
-  box.querySelector('#kbch')?.addEventListener('click', () => { ST.kbDept = ''; saveUI(); rer(); });
+  box.querySelectorAll('[data-kb]').forEach((b) => (b.onclick = () => { ST.kbDept = b.dataset.kb; saveUI(); rer(); }));
+  bindLF(box, () => kanban(box, tab, rer));
   box.querySelector('#qx')?.addEventListener('click', () => { LF.quick = ''; rer(); });
   box.querySelector('#kq').oninput = (e) => { LF.q = e.target.value; clearTimeout(kanban._t); kanban._t = setTimeout(() => { kanban(box, tab, rer); const i = box.querySelector('#kq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 300); };
   let dragId = null;
@@ -594,13 +686,31 @@ function tabAI(l, el, ctx) {
   });
 }
 
+/* the sheet's "All Remarks (date-wise)" as dated entries: "3 JAN - RNR" lines, the year taken from the enquiry date and moved on when the months wrap */
+const MON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+function sheetRemarks(text, l) {
+  const out = []; let y = new Date(l.enquiry_date || l.created_at || Date.now()).getFullYear(); let last = null;
+  String(text || '').split(/\n+/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
+    const m = line.match(/^(\d{1,2})(?:st|nd|rd|th)?[\s./-]*([A-Za-z]{3,9})\.?[\s,./-]*(\d{4}|\d{2})?\s*[-–:]\s*(.*)$/) || line.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\s*[-–:]?\s*(.*)$/);
+    if (!m) { if (last) last.text += ' ' + line; else out.push(last = { at: null, text: line }); return; }
+    const mi = isNaN(m[2]) ? MON[m[2].toLowerCase().slice(0, m[2].toLowerCase().startsWith('sept') ? 4 : 3)] : Number(m[2]) - 1;
+    if (mi == null) { if (last) last.text += ' ' + line; return; }
+    if (m[3]) y = Number(m[3].length === 2 ? '20' + m[3] : m[3]);
+    let d = new Date(y, mi, Number(m[1]), 12);
+    if (!m[3] && last?.at && d < new Date(last.at) - 40 * 864e5) { y += 1; d = new Date(y, mi, Number(m[1]), 12); }
+    out.push(last = { at: d.toISOString(), text: m[4] || '' });
+  });
+  return out;
+}
 async function tabHistory(l, el) {
   el.innerHTML = '<p class="muted">Loading…</p>';
-  const audit = await DB.fetchAudit(l.id);
+  const [audit, sheet] = await Promise.all([DB.fetchAudit(l.id), l.imported ? DB.history(l.id) : Promise.resolve('')]);
   const ev = [];
+  const sheetBy = (typeof personFrom === 'function' && personFrom(l.sheet_owner)?.full_name) || l.sheet_owner || l.owner_name || 'Sales sheet';
+  sheetRemarks(sheet, l).forEach((x) => ev.push({ at: x.at || l.enquiry_date || l.created_at, day: true, cls: 'sheet', html: `<b>${esc(sheetBy)}</b> <span class="chip">Sales sheet</span> ${esc(x.text)}` }));
   ev.push({ at: l.created_at, cls: 'sys', html: `<b>Lead created</b> by ${esc(DB.pname(l.created_by))} · source ${esc(l.source || '—')}` });
   audit.filter((a) => a.action === 'update').forEach((a) => ev.push({ at: a.changed_at, cls: 'sys', html: `<b>${esc(DB.pname(a.changed_by))}</b> changed ${Object.entries(a.diff || {}).map(([k, [o, n]]) => `${esc(k)}: <span class="faint">${esc(JSON.stringify(o))}</span> → ${esc(JSON.stringify(n))}`).join('; ')}` }));
-  L.remarks(l).forEach((r) => ev.push({ at: r.created_at, cls: 'call', html: `${esc(DB.pname(r.author))} · ${esc(r.channel)} · <b>${esc(r.outcome)}</b>: ${esc(r.text)}` }));
+  L.remarks(l).forEach((r) => ev.push({ at: r.created_at, cls: r.channel === 'Note' ? 'note' : 'call', html: r.channel === 'Note' ? `<b>${esc(DB.pname(r.author))}</b> <span class="chip acc">Note</span> ${esc(r.text)}` : `<b>${esc(DB.pname(r.author))}</b> · ${esc(r.channel)} · <span class="chip">${esc(r.outcome)}</span> ${esc(r.text)}` }));
   DB.t.price_disclosures.filter((p) => p.lead_id === l.id).forEach((p) => ev.push({ at: p.disclosed_at, cls: '', html: `${esc(DB.pname(p.disclosed_by))} disclosed <b>${inrFull(p.amount)}</b> + GST` }));
   DB.t.payments.filter((p) => p.lead_id === l.id).forEach((p) => { ev.push({ at: p.claimed_at || p.paid_on, cls: 'money', html: `Payment ${inrFull(p.amount)} recorded by ${esc(DB.pname(p.claimed_by))}` }); if (p.verified_at) ev.push({ at: p.verified_at, cls: 'money', html: `Payment verified by ${esc(DB.pname(p.verified_by))}` }); });
   DB.t.email_queue.filter((e) => e.lead_id === l.id).forEach((e) => ev.push({ at: e.sent_at || e.created_at, cls: 'mail', html: `Email “${esc(e.subject)}” ${esc(e.status.toLowerCase())}` }));
@@ -613,6 +723,16 @@ async function tabHistory(l, el) {
   });
   DB.t.complaints.filter((c) => c.lead_id === l.id).forEach((c) => ev.push({ at: c.created_at, cls: '', html: `Escalation raised: <b>${esc(c.title || c.category)}</b> · ${esc(c.severity)} · ${esc(c.status)}` }));
   ev.sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  el.innerHTML = `<div class="tl">${ev.map((x) => `<div class="ev ${x.cls}"><div class="when">${fmtDT(x.at)}</div><div class="what">${x.html}</div></div>`).join('')}</div>`;
+  const days = groupBy(ev, (x) => localDate(x.at));
+  el.innerHTML = `<section class="glass panel notebox"><h3>${svg('note')} Add a note or remark</h3>
+      <textarea id="nbtext" rows="3" placeholder="What happened, what was agreed, what to do next. It is saved under your name with today's date."></textarea>
+      <div class="row between"><span class="faint" style="font-size:12px">${esc(DB.me?.full_name || '')} · ${fmtDate(todayStr())}</span><button class="btn primary small" id="nbsave">${svg('plus')} Save to activity</button></div></section>
+    <div class="row between" style="margin:4px 2px 2px"><h3>Activity</h3><span class="faint" style="font-size:12px">${nfmt(ev.length)} entries${sheet ? ' · includes the sales sheet remarks' : ''}</span></div>
+    <div class="tl daytl">${Object.entries(days).map(([d, a]) => `<div class="tlday"><span class="tld">${fmtDate(d)}</span></div>${a.map((x) => `<div class="ev ${x.cls}"><div class="when">${x.day ? fmtDate(x.at) : new Date(x.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div><div class="what">${x.html}</div></div>`).join('')}`).join('') || '<p class="faint">Nothing yet.</p>'}</div>`;
+  el.querySelector('#nbsave').onclick = () => guard(async () => {
+    const text = (el.querySelector('#nbtext').value || '').trim(); if (!text) throw new Error('Write the note first.');
+    await DB.insert('remarks', { lead_id: l.id, channel: 'Note', outcome: 'Note', text });
+    tabHistory(DB.get('leads', l.id) || l, el);
+  }, 'Saved to activity');
 }
 

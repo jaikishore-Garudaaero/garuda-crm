@@ -116,14 +116,14 @@ function execBand(u) {
   const wonFy = ls.filter((l) => L.won(l) && M.inR(l.won_at, R));
   const perMonth = X.gap / Math.max(left, 0.25); const days = TG.workDaysLeft(R);
   const D = new Map([['x-open', { title: 'Open deals', rows: open }], ['x-leads', { title: 'Open leads', rows: leadsOpen }], ['x-won', { title: 'Won · ' + TG.label(fy), rows: wonFy }]]);
-  const card = (label, value, sub, tone = '', go0 = '', dk = '') => `<${go0 || dk ? 'button' : 'div'} class="glass kpi xk ${tone ? 'k-' + tone : ''}" ${go0 ? `data-go="${go0}"` : ''} ${dk ? `data-dk="${dk}"` : ''} type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}</${go0 || dk ? 'button' : 'div'}>`;
+  const card = (label, value, sub, tone = '', go0 = '', dk = '') => `<${go0 || dk ? 'button' : 'div'} class="glass kpi xk ${tone ? 'k-' + tone : ''}" ${go0.startsWith('rd') ? `data-rd="${go0}"` : go0 ? `data-go="${go0}"` : ''} ${dk ? `data-dk="${dk}"` : ''} type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}</${go0 || dk ? 'button' : 'div'}>`;
   const html = `<section class="exec-band" aria-label="${TG.label(fy)} at a glance">
     <div class="xb-head"><h2>${TG.label(fy)} at a glance</h2><span class="faint">${Math.round(TG.elapsed(R) * 100)}% of the year gone · ${nfmt(days)} working days left</span></div>
     <div class="xb-grid">
       ${card('Yearly target', X.t ? inr(X.t) : '—', X.t ? `${inr(X.due)} due by today at an even pace` : 'Set it in Settings → Sales targets', '', 'revenue/targets')}
-      ${card('Achieved (booked)', inr(X.a), X.t ? `<b>${X.p}%</b> of target · collected + balance due` : 'collected + balance due', X.p == null ? '' : toneFor(X.p, TG.elapsed(R)), 'revenue')}
-      ${card('Collected so far', inr(X.c), 'money received', '', 'revenue/ledger')}
-      ${card('Balance due', inr(X.d), 'sale done, payment to come', X.d ? 'warn' : '', 'collections')}
+      ${card('Achieved (booked)', inr(X.a), X.t ? `<b>${X.p}%</b> of target · collected + balance due` : 'collected + balance due', X.p == null ? '' : toneFor(X.p, TG.elapsed(R)), RD.put({ title: 'Achieved · ' + TG.label(fy), u, r: R }))}
+      ${card('Collected so far', inr(X.c), 'money received', '', RD.put({ title: 'Collected · ' + TG.label(fy), u, r: R, status: 'Collected' }))}
+      ${card('Balance due', inr(X.d), 'sale done, payment to come', X.d ? 'warn' : '', RD.put({ title: 'Balance due · ' + TG.label(fy), u, r: R, status: 'Pending PO' }))}
       ${card(X.lag > 0.5 ? 'Behind even pace' : 'Ahead of pace', X.t ? inr(Math.abs(X.lag)) : '—', X.t ? `${inr(X.gap)} still to book` : '', X.t ? (X.lag > 0.5 ? 'bad' : 'good') : '', 'revenue')}
       ${card('Needed a month from now', X.gap ? inr(perMonth) : '—', X.gap ? `${inr(X.gap / days)} a working day` : '', '', 'revenue')}
       ${card('Forecast by 31 March', inr(fc), cov == null ? 'achieved + weighted pipeline + Academy run-rate' : `<b>${cov}%</b> of target · ${inr(wtd)} weighted pipeline`, cov == null ? '' : cov >= 100 ? 'good' : cov >= 70 ? 'warn' : 'bad', 'deals')}

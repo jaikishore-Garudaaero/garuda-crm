@@ -69,6 +69,10 @@ const ICON = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.6-5.3 3.6-8.3.6 1.9 1.7 3 2.9 3.7.3-2.3 1.5-4.4 3.3-6.2.4 3.8 3.2 5.6 3.2 10.5 0 3.7-2.6 6.5-6.5 6.5z"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7"/>',
+  ring: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/>',
+  note: '<path d="M5 3.5h10l4 4v13H5z"/><path d="M15 3.5v4h4M8.5 12h7M8.5 15.5h7M8.5 8.5h3"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ''}</svg>`;
 
@@ -164,7 +168,7 @@ function kpi({ label, value, sub = '', color, drill, meter, tone = '' }) {
   const tag = drill ? 'button' : 'div';
   return `<${tag} class="glass kpi ${tone ? 'k-' + tone : ''}" ${drill ? `data-drill="${drill}" type="button"` : ''}>
     <span class="l">${color ? `<i style="background:${color}"></i>` : ''}${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}
-    ${meter !== undefined ? `<div class="meter ${meter >= 100 ? 'good' : meter >= 60 ? '' : 'warn'}"><i style="width:${clamp(meter, 0, 100)}%"></i></div>` : ''}
+    ${meter !== undefined ? `<div class="meter ${meter >= 100 ? 'good' : meter >= 70 ? '' : meter >= 40 ? 'warn' : 'bad'}"><i style="width:${clamp(meter, 0, 100)}%"></i></div>` : ''}
     ${drill ? '<span class="drill">See details →</span>' : ''}</${tag}>`;
 }
 function empty(title, text, action = '') { return `<div class="empty"><b>${title}</b>${text}${action ? `<div style="margin-top:10px">${action}</div>` : ''}</div>`; }
@@ -216,6 +220,26 @@ function leadRows(rows, { showOwner = true, showValue = true, extra } = {}) {
   ${showOwner ? `<td>${esc(L.ownerLabel(l))}</td>` : ''}${showValue ? `<td class="n">${inr(l.value)}</td>` : ''}<td>${l.last_contact_at ? rel(l.last_contact_at) : l.call_attempts ? `${l.call_attempts} call${l.call_attempts === 1 ? '' : 's'}` : '<span class="chip warn">Never</span>'}</td>
   <td>${l.next_followup_at ? `<span class="${new Date(l.next_followup_at) < new Date() && L.open(l) ? 'chip bad' : ''}">${fmtDT(l.next_followup_at)}</span>` : '—'}</td>${extra ? `<td>${extra.f(l)}</td>` : ''}</tr>`).join('')}</tbody></table></div>${more}`;
 }
+/* ---------- every money figure can show where it comes from ---------- */
+const RD = { m: new Map(), n: 0, put(spec) { const k = 'rd' + ++this.n; this.m.set(k, spec); if (this.m.size > 1500) this.m.delete(this.m.keys().next().value); return k; } };
+/* a figure that opens its revenue lines and deals: spec = { title, u, r, status } */
+const rdNum = (text, spec) => `<button class="lnk rdn" type="button" data-rd="${RD.put(spec)}" title="See where this comes from">${text}</button>`;
+function revDrillOpen(spec) {
+  if (!spec) return;
+  if (spec.html) return drill(esc(spec.title), spec.html);
+  const lines = TG.lines(spec.u, spec.r, spec.status).sort((a, c) => String(a.e.month).localeCompare(String(c.e.month)) || c.e.amount - a.e.amount);
+  const deals = spec.status === 'Collected' || spec.status === 'Pending PO' ? [] : TG.wonExtra(spec.u, spec.r);
+  const tot = sum(lines, (x) => x.w * Number(x.e.amount || 0)) + sum(deals, (x) => x.v);
+  const who = (e) => (e.owner ? DB.pname(e.owner) : e.owner_label || '—');
+  const html = `<p class="faint" style="margin:0 0 8px">${nfmt(lines.length)} ledger line${lines.length === 1 ? '' : 's'}${deals.length ? ` and ${nfmt(deals.length)} deal${deals.length === 1 ? '' : 's'} won in the CRM` : ''} · total <b>${inrFull(tot)}</b>${spec.u.pid ? ` · for ${esc(DB.pname(spec.u.pid))}: their own lines, plus their share of Academy collections where the line is split` : ''}</p>
+    ${lines.length ? `<div class="tablewrap"><table><thead><tr><th>Month</th><th>Process</th><th>Product</th><th>Client</th><th>Owner</th><th>Status</th><th class="n">Line</th>${spec.u.pid ? '<th class="n">Counted</th>' : ''}</tr></thead><tbody>
+      ${lines.map(({ e, w }) => `<tr ${e.lead_id ? `class="click" data-lead="${e.lead_id}"` : ''}><td>${e.paid_on ? fmtDate(e.paid_on) : fmtMonth(e.month)}</td><td>${deptChip(e.department)}</td><td>${esc(e.segment)}</td><td>${esc(e.client)}${e.opp_ref ? ` <span class="faint">${esc(e.opp_ref)}</span>` : ''}</td><td>${esc(who(e))}</td><td>${e.status === 'Collected' ? '<span class="chip good">Collected</span>' : '<span class="chip warn">Balance due</span>'}</td><td class="n">${inrFull(e.amount)}</td>${spec.u.pid ? `<td class="n">${w < 1 ? `<span class="faint">${Math.round(w * 1000) / 10}% ·</span> ` : ''}${inrFull(w * e.amount)}</td>` : ''}</tr>`).join('')}</tbody></table></div>` : ''}
+    ${deals.length ? `<h4 style="margin:12px 0 4px">Won in the CRM, not in the ledger yet</h4><div class="tablewrap"><table><thead><tr><th>Deal</th><th>Won</th><th>Owner</th><th class="n">Counted</th></tr></thead><tbody>${deals.map(({ l, v }) => `<tr class="click" data-lead="${l.id}"><td>${esc(L.title(l))} ${deptChip(l.funnel)}</td><td>${fmtDate(l.won_at)}</td><td>${esc(L.ownerLabel(l))}</td><td class="n">${inrFull(v)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${!lines.length && !deals.length ? empty('Nothing behind this figure', 'No revenue lines or won deals in this period.') : ''}`;
+  drill(esc(spec.title || 'Where this comes from'), html);
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-rd]'); if (!b) return; e.preventDefault(); e.stopPropagation(); revDrillOpen(RD.m.get(b.dataset.rd)); }, true);
+
 function bindLeadClicks(root) { root.addEventListener('click', (e) => { const r = e.target.closest('[data-lead]'); if (r && r.dataset.lead && !e.target.closest('input,select,[data-tick],[data-tedit]')) { e.preventDefault(); openLead(r.dataset.lead); } }); }
 
 function drill(title, html) {
@@ -228,7 +252,7 @@ function drill(title, html) {
 const canCEO = () => !hideSales() && (seesAll() || (hasTeam() && !isMember()));
 const canRevenue = () => (!isMember() && !hideSales()) || isFinance();
 const NAV = [
-  ['Workspace', [['chat', 'Garuda Chat', 'chat', () => true]]],
+  ['Workspace', [['connect', 'Claude Connect', 'ring', () => !hideSales()], ['chat', 'Garuda Chat', 'chat', () => true]]],
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
