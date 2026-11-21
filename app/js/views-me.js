@@ -360,7 +360,9 @@ VIEWS.mydash = {
   title: 'My dashboard', sub: 'Where you stand: your target, today’s follow-ups and visits, your tasks and your KRA. Only your own work.',
   render(el) {
     const me = DB.me.id; const r = curRange(); const now = new Date(); const today = todayStr();
-    const u = { dept: ST.dept, pid: me };
+    /* the head of the department and the super admin carry the team's target as their own */
+    const lead = (seesAll() || (hasTeam() && !isMember())) && !TG.has({ dept: ST.dept, pid: me });
+    const u = lead ? { dept: ST.dept } : { dept: ST.dept, pid: me };
     const mine = visibleLeads().filter((l) => l.owner === me && M.deptOk(l.funnel) && L.open(l));
     const over = mine.filter((l) => l.next_followup_at && new Date(l.next_followup_at) < now && (!l.last_contact_at || new Date(l.last_contact_at) < new Date(l.next_followup_at))).sort((a, b) => a.next_followup_at.localeCompare(b.next_followup_at));
     const todayF = mine.filter((l) => l.next_followup_at && localDate(l.next_followup_at) === today && new Date(l.next_followup_at) >= now).sort((a, b) => a.next_followup_at.localeCompare(b.next_followup_at));
@@ -371,7 +373,7 @@ VIEWS.mydash = {
     const deals = mine.filter((l) => l.is_deal).sort((a, b) => String(a.expected_close || '9').localeCompare(String(b.expected_close || '9')));
     const D = new Map(); const put = (k, title, a) => { D.set(k, { title, rows: a }); return cnt(a.length, k); };
     el.innerHTML = `${welcomeHTML()}${filterBar({ person: false })}
-      <section class="glass panel mytg"><div class="panel-head"><h2><span class="gtag green">${svg('target')} My target</span> ${esc(TG.cur().label)}</h2><span class="sub">${has ? '' : 'No target set for you yet'}</span></div>
+      <section class="glass panel mytg"><div class="panel-head"><h2><span class="gtag green">${svg('target')} ${lead ? 'My target · the team’s target' : 'My target'}</span> ${esc(TG.cur().label)}</h2><span class="sub">${lead ? 'You lead the team, so the whole team’s target and achievement are yours' : has ? '' : 'No target set for you yet'}</span></div>
         ${milestoneTrack(u, TG.cur())}
         <div class="grid g2" style="margin-top:14px"><div><h4 style="margin:0 0 6px">${svg('spark')} Easiest way to the target</h4>${planHTML(u, ST.period)}</div>
           <div class="rings mine">${ring(s.kra?.score || 0, s.kra ? s.kra.score + '' : '—', 'KRA score', '#7b6cf0')}${ring(s.connectRate || 0, nfmt(s.calls), 'Calls', '#3a8ae0')}${ring(s.followPct ?? 0, s.followPct == null ? '—' : s.followPct + '%', 'On time', '#2cc3b5')}${ring(Math.min(100, (s.conversions || 0) * 20), nfmt(s.conversions), 'Won', '#2fb36a')}</div></div></section>
@@ -453,6 +455,12 @@ function alertsList() {
   DB.t.project_items.filter((i) => i.owner === me && i.kind !== 'payment' && !['Done', 'Cancelled'].includes(i.status) && i.due_date && i.due_date < today).forEach((i) => add('p' + i.id + i.due_date, 'warn', 'proj', `Milestone overdue: ${esc(i.name)}`, esc(DB.get('projects', i.project_id)?.name || ''), 'projects/overdue', i.due_date + 'T09:00:00', false));
   /* managers: missed visits in their team for more than a day */
   if (hasTeam()) { const s = scopeIds(); const late = DB.t.visits.filter((x) => x.owner !== me && s.has(x.owner) && ['Planned', 'Rescheduled'].includes(x.status || 'Planned') && x.planned_at && now - new Date(x.planned_at) > 864e5); if (late.length) add('tv' + late.length + today, 'warn', 'team', `${late.length} visit${late.length === 1 ? '' : 's'} in your team not checked in`, [...new Set(late.map((x) => DB.pname(x.owner).split(' ')[0]))].slice(0, 4).join(', '), 'visits/overdue', today + 'T09:00:00', false); }
+  /* leads given to me that nobody has called after a day */
+  const unt = typeof untouchedMine === 'function' ? untouchedMine() : [];
+  unt.slice(0, 8).forEach((l) => add('u' + l.id, 'bad', 'phone', `Not contacted yet: ${esc(l.name)}`, `Given to you ${rel(l.allocated_date || l.created_at)}. Call now.`, 'lead:' + l.id, l.allocated_date || l.created_at, true));
+  if (unt.length > 8) add('um' + unt.length + today, 'bad', 'phone', `${unt.length - 8} more leads not contacted yet`, 'Open Leads and pick “Never reached”', 'leads', today + 'T09:00:00', false);
+  /* messages from automations and the system */
+  (DB.t.notifications || []).filter((n) => n.user_id === me && !n.read_at).slice(-30).forEach((n) => add('n' + n.id, n.kind === 'good' ? 'info' : n.kind === 'info' ? 'info' : n.kind, n.link ? 'chat' : n.kind === 'good' ? 'check' : 'bell', esc(n.title), `${esc(n.body || '')}${n.link ? ` <a class="lnk" href="${esc(n.link)}" target="_blank" rel="noopener" data-nread="${n.id}">Open WhatsApp</a>` : ''}`, n.lead_id ? 'lead:' + n.lead_id : 'automations', n.created_at, n.kind === 'bad'));
   const un = typeof chatUnread === 'function' ? chatUnread() : 0;
   if (un) add('c' + un + (DB.t.chat_messages.at(-1)?.id || ''), 'info', 'chat', `${un} unread message${un === 1 ? '' : 's'} in Garuda Chat`, '', 'chat', nowISO(), false);
   const st = RM.load();
@@ -471,7 +479,7 @@ function bindBell() {
     pop.querySelectorAll('[data-ao]').forEach((x) => (x.onclick = () => { pop.hidden = true; openAlert(x.dataset.ao); }));
     const later = (id, ms) => { const st = RM.load(); st[id] = Date.now() + ms; Object.keys(st).forEach((k) => { if (st[k] < Date.now()) delete st[k]; }); RM.save(st); draw(); };
     pop.querySelectorAll('[data-snz]').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); later(x.dataset.snz, 36e5); }));
-    pop.querySelectorAll('[data-dis]').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); later(x.dataset.dis, 30 * 864e5); }));
+    pop.querySelectorAll('[data-dis]').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); const id = x.dataset.dis; if (id.startsWith('n') && DB.get('notifications', id.slice(1))) DB.update('notifications', id.slice(1), { read_at: nowISO() }).catch(() => {}); later(id, 30 * 864e5); }));
     pop.querySelector('#npm')?.addEventListener('click', (e) => { e.stopPropagation(); window.Notification.requestPermission().then(draw); });
   };
   b.onclick = (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; if (!pop.hidden) draw(); else refreshBell(); };

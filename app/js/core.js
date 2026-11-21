@@ -130,9 +130,9 @@ const EMAIL_CATS = ['Newsletter', 'Marketing', 'Training update', 'Internal upda
 const TABLES = ['profiles', 'sales_targets', 'chat_messages', 'work_tasks', 'work_subtasks', 'departments', 'revenue_targets', 'campaign_types', 'mkt_campaigns', 'campaign_spend', 'project_items', 'stages', 'products', 'product_items', 'institutions', 'contacts', 'campaigns', 'leads', 'remarks', 'remark_edits',
   'price_disclosures', 'payments', 'events', 'event_attendees', 'visits', 'email_templates', 'email_queue',
   'unsubscribes', 'automation_rules', 'ai_insights', 'projects', 'complaints', 'targets', 'revenue_entries', 'admissions', 'admission_sources',
-  'email_contacts', 'email_lists', 'email_list_members', 'email_sequences', 'sequence_steps', 'sequence_enrollments', 'email_clicks'];
+  'email_contacts', 'email_lists', 'email_list_members', 'email_sequences', 'sequence_steps', 'sequence_enrollments', 'email_clicks', 'notifications', 'automations'];
 const RT_TABLES = ['leads', 'remarks', 'payments', 'price_disclosures', 'email_queue', 'visits', 'event_attendees', 'revenue_entries', 'admissions', 'complaints', 'projects', 'project_items', 'work_tasks', 'work_subtasks', 'chat_messages', 'sales_targets',
-  'profiles', 'departments', 'stages', 'products', 'product_items', 'institutions', 'contacts', 'mkt_campaigns', 'campaign_spend', 'revenue_targets', 'events', 'admission_sources', 'campaign_types'];
+  'profiles', 'departments', 'stages', 'products', 'product_items', 'institutions', 'contacts', 'mkt_campaigns', 'campaign_spend', 'revenue_targets', 'events', 'admission_sources', 'campaign_types', 'notifications', 'automations'];
 /* screens retired in v3 (tasks, approvals, EOD & MIS, training calendar): kept empty so nothing old can break */
 const RETIRED = ['tasks', 'batches', 'eod_reports', 'business_tasks', 'review_meetings', 'review_items', 'daily_mom', 'comments', 'approval_rules', 'approvals'];
 const PAGE = 1000;
@@ -192,7 +192,9 @@ const DB = {
     this.loadErrors = [];
     const since = new Date(Date.now() - 200 * 86400e3).toISOString();
     const build = (t) => (x) => {
-      if (t === 'remarks' || t === 'email_queue') return x.gte('created_at', since);
+      if (t === 'remarks') return x.gte('created_at', since).neq('channel', 'Sales sheet');
+      if (t === 'email_queue') return x.gte('created_at', since);
+      if (t === 'notifications') return x.gte('created_at', new Date(Date.now() - 30 * 86400e3).toISOString());
       if (t === 'email_clicks') return x.gte('clicked_at', since);
       if (t === 'chat_messages') return x.gte('created_at', new Date(Date.now() - 90 * 86400e3).toISOString());
       return x;
@@ -209,6 +211,10 @@ const DB = {
     this.subscribe();
   },
   /* the full call history from the sales sheet is only read when a lead is opened */
+  async sheetRemarks(leadId) {
+    if (this.mode !== 'live' && !this.sb) return [];
+    try { const { data, error } = await this.sb.from('remarks').select('*').eq('lead_id', leadId).eq('channel', 'Sales sheet'); if (error) return null; return data || []; } catch (_) { return null; }
+  },
   async history(leadId) {
     const { data } = await this.sb.from('lead_history').select('text').eq('lead_id', leadId).maybeSingle();
     return data?.text || '';
@@ -219,6 +225,7 @@ const DB = {
     const ch = this.sb.channel('crm');
     RT_TABLES.forEach((t) => {
       ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (p) => {
+        if (t === 'remarks' && (p.new?.channel === 'Sales sheet' || p.old?.channel === 'Sales sheet')) return;
         const arr = this.t[t] || (this.t[t] = []);
         const keys = ORDER_KEYS[t] || ['id']; const same = (a, b) => keys.every((k) => a?.[k] === b?.[k]);
         let prev = null;
@@ -272,9 +279,11 @@ const DB = {
   },
   async update(t, id, patch) {
     this.markLocal(id);
+    const before = t === 'leads' ? { ...(this.t.leads.find((x) => x.id === id) || {}) } : null;
     const { data, error } = await this.sb.from(t).update(patch).eq('id', id).select().single();
     if (error) throw new Error(friendly(error));
     const arr = this.t[t]; const i = arr.findIndex((x) => x.id === id); if (i >= 0) arr[i] = data;
+    if (before && typeof celebrate === 'function') try { celebrate(before, data); } catch (_) { /* never block a save */ }
     if (t === 'leads' || t === 'remarks' || t === 'payments') await this.refreshLead(data.lead_id || (t === 'leads' ? id : null));
     if (t === 'payments' || t === 'leads') await this.refreshMoney();
     if (t === 'project_items' && data.payment_id) this.t.payments = await this.fetchAll('payments');

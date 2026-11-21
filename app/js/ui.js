@@ -85,6 +85,8 @@ function toast(msg, err) {
 }
 async function guard(fn, okMsg) { try { const r = await fn(); if (okMsg) toast(okMsg); return r; } catch (e) { console.error(e); toast(e.message || String(e), true); return undefined; } }
 
+/* open pop-ups; opening a record closes them so it never comes back to the pop-up */
+const MODALS = new Set();
 function openModal({ title, body, foot = '', width = 720, onMount }) {
   const layer = $('#layer');
   const scrim = document.createElement('div'); scrim.className = 'scrim';
@@ -92,7 +94,8 @@ function openModal({ title, body, foot = '', width = 720, onMount }) {
   m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
   m.innerHTML = `<div class="modal-head"><h2>${title}</h2><button class="btn ghost small" data-x aria-label="Close">${svg('x')}</button></div><div class="modal-body">${body}</div>${foot ? `<div class="modal-foot">${foot}</div>` : ''}`;
   layer.append(scrim, m);
-  const close = () => { scrim.remove(); m.remove(); document.removeEventListener('keydown', onKey); };
+  const close = () => { scrim.remove(); m.remove(); MODALS.delete(close); document.removeEventListener('keydown', onKey); };
+  MODALS.add(close);
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   scrim.onclick = close; m.querySelector('[data-x]').onclick = close;
@@ -120,7 +123,7 @@ function promptBox(title, label, value = '', opts = {}) {
 
 let drawerCtx = null;
 function openDrawer(render, cls = '') {
-  closeDrawer();
+  closeDrawer(); [...MODALS].forEach((c) => c());
   const layer = $('#layer');
   const scrim = document.createElement('div'); scrim.className = 'scrim';
   const d = document.createElement('aside'); d.className = 'drawer glass' + (cls ? ' ' + cls : ''); d.setAttribute('role', 'dialog');
@@ -254,7 +257,7 @@ const canRevenue = () => (!isMember() && !hideSales()) || isFinance();
 const NAV = [
   ['Workspace', [['connect', 'Claude Connect', 'ring', () => !hideSales()], ['chat', 'Garuda Chat', 'chat', () => true]]],
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
-  ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()]]],
+  ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()], ['automations', 'Automations', 'spark', () => !hideSales() && !isMember()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
   ['Execution', [['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
 ];

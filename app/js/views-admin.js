@@ -427,7 +427,7 @@ async function importLeadRows(rows, tot) {
 async function runImport(P) {
   IMP.running = true;
   const steps = []; for (let i = 0; i < P.leads.length; i += 200) steps.push(['leads', P.leads.slice(i, i + 200)]);
-  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null], ['targets', P.targets], ['accounts', P.leads.length ? [1] : []]);
+  steps.push(['projects', P.projects], ['revenue', P.revenue], ['admissions', null], ['targets', P.targets], ['accounts', P.leads.length ? [1] : []], ['remarks', P.leads.length ? [1] : []]);
   const tot = { new: 0, updated: 0, no_owner: 0 };
   try {
     for (let i = 0; i < steps.length; i++) {
@@ -436,13 +436,14 @@ async function runImport(P) {
       if (k === 'leads') await importLeadRows(rows, tot);
       else if (k === 'projects' && rows.length) await DB.call('import_projects', { p_rows: rows });
       else if (k === 'revenue' && rows.length) await DB.call('import_revenue', { p_rows: rows, p_scope: P.revScope });
+      else if (k === 'remarks' && rows.length) { try { const r = await DB.call('sync_sheet_remarks', {}); tot.rem = r?.remarks; } catch (_) { /* the remarks still show from the sheet text */ } }
       else if (k === 'accounts' && rows.length) { try { await DB.call('link_accounts', {}); } catch (_) { /* accounts are a convenience; the import itself is done */ } }
       else if (k === 'targets' && rows.length) { const r = await DB.call('import_targets', { p_fy: P.fy, p_rows: rows }); if (r?.not_matched?.length) tot.miss = r.not_matched; if (P.split) await DB.setSetting('academy_split', P.split); }
       else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.call('import_admissions', { p_adm: P.adm, p_src: P.src });
     }
     /* everything is saved; refresh the screen once (a failed refresh is not a failed import) */
     try { await DB.load(); } catch (_) { /* the Reload button below reads everything again */ }
-    IMP.status = `<div class="note good" style="margin-top:12px"><b>Import finished.</b> ${nfmt(tot.new)} new and ${nfmt(tot.updated)} updated leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines, ${nfmt(P.counts.admissions)} admissions rows${P.targets.length ? `, ${TG.label(P.fy)} targets` : ''}.${tot.miss ? ` Targets skipped for: ${esc(tot.miss.join(', '))}.` : ''}${tot.no_owner ? ` ${nfmt(tot.no_owner)} name someone who is not in the CRM: they are marked as handed over and stay with their current owner where they had one.` : ''}</div><button class="btn primary" id="xlre">Reload the CRM</button>`;
+    IMP.status = `<div class="note good" style="margin-top:12px"><b>Import finished.</b> ${nfmt(tot.new)} new and ${nfmt(tot.updated)} updated leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines, ${nfmt(P.counts.admissions)} admissions rows${P.targets.length ? `, ${TG.label(P.fy)} targets` : ''}${tot.rem ? `, ${nfmt(tot.rem)} dated remarks on the activity timelines` : ''}.${tot.miss ? ` Targets skipped for: ${esc(tot.miss.join(', '))}.` : ''}${tot.no_owner ? ` ${nfmt(tot.no_owner)} name someone who is not in the CRM: they are marked as handed over and stay with their current owner where they had one.` : ''}</div><button class="btn primary" id="xlre">Reload the CRM</button>`;
   } catch (e) {
     IMP.status = `<div class="note bad" style="margin-top:12px"><b>Stopped:</b> ${esc(e.message || String(e))}. Nothing is doubled if you run it again.</div>`;
   }

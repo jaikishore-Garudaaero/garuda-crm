@@ -339,6 +339,10 @@ function liveCheck(t, type, row, prev) {
   } else if (t === 'work_subtasks' && row.owner === me && (type === 'INSERT' || (prev && prev.owner !== me))) {
     const parent = DB.get('work_tasks', row.task_id);
     chime('task'); liveNotice('New sub-task for you', row.title + (parent ? ' · in ' + parent.title : ''), () => go('tasks', row.task_id));
+  } else if (t === 'leads' && prev && row.owner === me && typeof celebrate === 'function') {
+    celebrate(prev, row);
+  } else if (t === 'notifications' && type === 'INSERT' && row.user_id === me) {
+    chime(row.kind === 'bad' ? 'alert' : 'task'); liveNotice(row.title, row.body || '', () => (row.lead_id ? openLead(row.lead_id) : go('automations')));
   } else if (t === 'chat_messages' && type === 'INSERT' && row.sender !== me) {
     const r = row.room || ''; const mine = r.startsWith('dm:') ? r.includes(me) : r === 'general' || (r.startsWith('dept:') && (DB.me.departments || []).includes(r.slice(5)));
     if (mine && ST.view !== 'chat') chime('chat');

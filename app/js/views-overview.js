@@ -103,6 +103,8 @@ function handoverTable(all, put) {
 }
 /* a KPI card that opens its records */
 const kcard = (key, label, value, sub, tone = '') => `<button class="glass kpi kcard ${tone}" data-dk="${esc(key)}" type="button"><span class="l">${label}</span><span class="v">${value}</span>${sub ? `<span class="s">${sub}</span>` : ''}<span class="drill">See details →</span></button>`;
+/* a sales figure: what it is, the count large, the money small underneath */
+const skpi = (key, label, count, money, hint, tone = '') => `<button class="glass kpi skpi ${tone}" data-dk="${esc(key)}" type="button" title="See the records"><span class="sk-l">${label}</span><span class="sk-c">${count}</span><span class="sk-m">${money}</span><span class="sk-h">${hint}</span></button>`;
 const bindGo = (el) => el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => { const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
 
 /* ---------- the executive band: the year's target, what is booked and collected, the gap, the forecast, leads and deals ---------- */
@@ -298,17 +300,20 @@ VIEWS.sales = {
     /* product interest */
     const interest = Object.entries(groupBy(inR, (l) => L.product(l)?.name || (l.course && l.course !== 'Not Specified' ? l.course : '') || (l.sub_category && l.sub_category !== 'Not Specified' ? l.sub_category : '') || 'Not specified')).sort((a, b) => b[1].length - a[1].length).slice(0, 12);
     const weighted = sum(openDeals, (l) => (l.value * L.prob(l)) / 100);
+    const refs = inR.filter((l) => l.referred_by || /referr?al/i.test(l.source || ''));
+    D.set('k8', { title: `Referrals · ${r.label}`, rows: refs });
     [['k1', `New leads · ${r.label}`, inR], ['k2', `Converted to deals · ${r.label}`, dealsNew], ['k3', `Won · ${r.label}`, won], ['k4', `Lost · ${r.label}`, lost], ['k5', 'Open deals', openDeals], ['k6', 'Open deals · weighted pipeline', openDeals],
       ['k7', `Admissions · ${r.label}`, adm.map((a) => a.lead_id && DB.get('leads', a.lead_id)).filter(Boolean)]].forEach(([k, t, rows]) => D.set(k, { title: t, rows }));
     el.innerHTML = `${filterBar()}
-      <div class="kpis kclick">
-        ${kcard('k1', 'New leads', nfmt(inR.length), r.label)}
-        ${kcard('k2', 'New deals', nfmt(dealsNew.length), 'Converted in the period')}
-        ${kcard('k3', 'Won', nfmt(won.length), 'Conversions in the period', won.length ? 'good' : '')}
-        ${kcard('k4', 'Lost', nfmt(lost.length), 'Closed lost in the period', lost.length ? 'bad' : '')}
-        ${kcard('k5', 'Open pipeline', inrShort(sum(openDeals, (l) => l.value)), `${nfmt(openDeals.length)} open deals`)}
-        ${kcard('k6', 'Weighted pipeline', inrShort(weighted), 'Value × stage win %')}
-        ${[...admDepts].some((c) => M.deptOk(c)) ? kcard('k7', 'Admissions', nfmt(admN), `${nfmt(sum(adm, (a) => a.paid))} paid · ${nfmt(sum(adm, (a) => a.free))} free · ${[...admDepts].join(', ')}`) : ''}
+      <div class="kpis kclick skpis">
+        ${skpi('k1', 'New leads', nfmt(inR.length), inr(sum(inR, (l) => l.value)) + ' enquiry value', r.label)}
+        ${skpi('k2', 'New deals', nfmt(dealsNew.length), inr(sum(dealsNew, (l) => l.value)), 'Leads converted to deals')}
+        ${skpi('k3', 'Won', nfmt(won.length), inr(sum(won, (l) => l.value)), 'Sales closed', won.length ? 'k-good' : '')}
+        ${skpi('k4', 'Lost', nfmt(lost.length), inr(sum(lost, (l) => l.value)), 'Closed lost', lost.length ? 'k-bad' : '')}
+        ${skpi('k5', 'Pipeline', nfmt(openDeals.length), inr(sum(openDeals, (l) => l.value)), 'Open deals, full value')}
+        ${skpi('k6', 'Weighted pipeline', (Math.round(sum(openDeals, (l) => L.prob(l)) / 10) / 10).toLocaleString('en-IN'), inr(weighted), 'Expected wins · value × stage win %')}
+        ${[...admDepts].some((c) => M.deptOk(c)) ? skpi('k7', 'Admissions', nfmt(admN), inr(sum(DB.t.revenue_entries.filter((e) => admDepts.has(e.department) && M.deptOk(e.department) && M.inR(e.paid_on || e.month, r)), (e) => Number(e.amount) || 0)) + ' revenue', `${nfmt(sum(adm, (a) => a.paid))} paid · ${nfmt(sum(adm, (a) => a.free))} free`) : ''}
+        ${skpi('k8', 'Referrals', nfmt(refs.length), `${nfmt(refs.filter((l) => l.is_deal || L.won(l)).length)} converted · ${inr(sum(refs.filter(L.won), (l) => l.value))} won`, 'Student referrals in the period')}
       </div>
       ${actionStrip(commandCounts())}
       <div class="grid g2">
