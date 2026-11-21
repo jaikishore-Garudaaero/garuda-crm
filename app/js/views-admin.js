@@ -418,7 +418,7 @@ function showPlan(out, P, rer) {
 }
 /* one batch of leads; if the server runs out of time on it, save it again in smaller pieces */
 async function importLeadRows(rows, tot) {
-  try { const r = await DB.rpc('import_leads', { p_rows: rows }); tot.new += r.new; tot.updated += r.updated; tot.no_owner += r.no_owner; }
+  try { const r = await DB.call('import_leads', { p_rows: rows }); tot.new += r.new; tot.updated += r.updated; tot.no_owner += r.no_owner; }
   catch (e) {
     if (!/timeout|canceling statement/i.test(e.message || '') || rows.length <= 10) throw e;
     const h = Math.ceil(rows.length / 2); await importLeadRows(rows.slice(0, h), tot); await importLeadRows(rows.slice(h), tot);
@@ -434,11 +434,13 @@ async function runImport(P) {
       const [k, rows] = steps[i];
       IMP.status = `<div class="pbar info" style="margin-top:12px"><i style="width:${Math.round((i / steps.length) * 100)}%"></i></div><p class="faint">Saving ${k}… step ${i + 1} of ${steps.length}. Keep this page open.</p>`; impPaint();
       if (k === 'leads') await importLeadRows(rows, tot);
-      else if (k === 'projects' && rows.length) await DB.rpc('import_projects', { p_rows: rows });
-      else if (k === 'revenue' && rows.length) await DB.rpc('import_revenue', { p_rows: rows, p_scope: P.revScope });
-      else if (k === 'targets' && rows.length) { const r = await DB.rpc('import_targets', { p_fy: P.fy, p_rows: rows }); if (r?.not_matched?.length) tot.miss = r.not_matched; if (P.split) await DB.setSetting('academy_split', P.split); }
-      else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.rpc('import_admissions', { p_adm: P.adm, p_src: P.src });
+      else if (k === 'projects' && rows.length) await DB.call('import_projects', { p_rows: rows });
+      else if (k === 'revenue' && rows.length) await DB.call('import_revenue', { p_rows: rows, p_scope: P.revScope });
+      else if (k === 'targets' && rows.length) { const r = await DB.call('import_targets', { p_fy: P.fy, p_rows: rows }); if (r?.not_matched?.length) tot.miss = r.not_matched; if (P.split) await DB.setSetting('academy_split', P.split); }
+      else if (k === 'admissions' && (P.adm.length || P.src.length)) await DB.call('import_admissions', { p_adm: P.adm, p_src: P.src });
     }
+    /* everything is saved; refresh the screen once (a failed refresh is not a failed import) */
+    try { await DB.load(); } catch (_) { /* the Reload button below reads everything again */ }
     IMP.status = `<div class="note good" style="margin-top:12px"><b>Import finished.</b> ${nfmt(tot.new)} new and ${nfmt(tot.updated)} updated leads and deals, ${nfmt(P.projects.length)} projects, ${nfmt(P.revenue.length)} revenue lines, ${nfmt(P.counts.admissions)} admissions rows${P.targets.length ? `, ${TG.label(P.fy)} targets` : ''}.${tot.miss ? ` Targets skipped for: ${esc(tot.miss.join(', '))}.` : ''}${tot.no_owner ? ` ${nfmt(tot.no_owner)} name someone who is not in the CRM: they are marked as handed over and stay with their current owner where they had one.` : ''}</div><button class="btn primary" id="xlre">Reload the CRM</button>`;
   } catch (e) {
     IMP.status = `<div class="note bad" style="margin-top:12px"><b>Stopped:</b> ${esc(e.message || String(e))}. Nothing is doubled if you run it again.</div>`;
