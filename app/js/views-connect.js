@@ -122,7 +122,7 @@ function ccUnlock() {
   if (CC.unlocked || !('speechSynthesis' in window)) return;
   try { const u = new window.SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); window.speechSynthesis.resume(); CC.unlocked = true; } catch (_) { /* */ }
 }
-function ccSentences(t) { return String(t || '').replace(/\s+/g, ' ').match(/[^.!?]+[.!?]*/g)?.map((x) => x.trim()).filter(Boolean) || []; }
+function ccSentences(t) { return String(t || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+(?=[A-Z0-9₹"“(])/).map((x) => x.trim()).filter(Boolean); }
 function ccSay(text, after) {
   CC.afterSay = after || null;
   const parts = ccSentences(text); CC.capParts = parts; CC.capAt = -1; ccCaption();

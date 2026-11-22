@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 400, system: SYSTEM + `\nYou are talking to ${body.name || "a team member"}. Today is ${new Date().toISOString().slice(0, 10)}.`, messages }),
+      body: JSON.stringify({ model, max_tokens: 900, system: SYSTEM + `\nYou are talking to ${body.name || "a team member"}. Today is ${new Date().toISOString().slice(0, 10)}.`, messages }),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) {
