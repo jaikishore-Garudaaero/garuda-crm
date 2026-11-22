@@ -331,8 +331,27 @@ function route() {
   if (DB.me) { if ($('.app') && shellKey === shellSig()) switchView(); else renderShell(); }
 }
 
+/* the loading screen: the Garuda mark inside spinning rings; it tilts with the pointer and spins when tapped */
+function bootScreen() {
+  const c = brandInfo(); const logo = safeLogo(c.logo); const name = c.name || 'Garuda CRM';
+  $('#root').innerHTML = `<div class="boot" id="boot" aria-live="polite">
+    <button type="button" class="boot-orb" id="bootorb" aria-label="${esc(name)}">
+      <svg class="boot-rings" viewBox="0 0 200 200" aria-hidden="true"><defs><linearGradient id="bootg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4599FE"/><stop offset=".55" stop-color="#0B63D6"/><stop offset="1" stop-color="#E02446"/></linearGradient></defs>
+        <circle class="br1" cx="100" cy="100" r="92"/><circle class="br2" cx="100" cy="100" r="80"/><circle class="br3" cx="100" cy="100" r="68"/></svg>
+      <span class="boot-logo">${logo ? `<img src="${logo}" alt="">` : `<b>${esc((name.trim()[0] || 'G').toUpperCase())}</b>`}</span>
+      <i class="boot-dot"></i></button>
+    <h1>${esc(name)}</h1>
+    <p id="bootmsg">Starting up…</p>
+    <div class="boot-bar"><i></i></div></div>`;
+  const orb = $('#bootorb'); const boot = $('#boot');
+  boot.addEventListener('pointermove', (e) => { const r = boot.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - 0.5; const y = (e.clientY - r.top) / r.height - 0.5; orb.style.transform = `rotateY(${x * 28}deg) rotateX(${-y * 28}deg)`; });
+  boot.addEventListener('pointerleave', () => { orb.style.transform = ''; });
+  orb.onclick = () => { orb.classList.remove('spin'); void orb.offsetWidth; orb.classList.add('spin'); };
+  const lines = ['Loading leads…', 'Counting revenue…', 'Lining up follow-ups…', 'Checking campaigns…', 'Waking up Garuda…'];
+  let k = 0; const t = setInterval(() => { const m = $('#bootmsg'); if (!m || !m.isConnected || !$('#boot')) return clearInterval(t); if (/leads, revenue/.test(m.textContent) || k) m.textContent = lines[k++ % lines.length]; }, 1400);
+}
 (async function boot() {
-  $('#root').innerHTML = `<div class="glass auth">${brandHTML()}<p class="muted" id="bootmsg">Loading…</p></div>`;
+  bootScreen();
   try {
     await DB.init();
     if (DB.mode === 'live') {

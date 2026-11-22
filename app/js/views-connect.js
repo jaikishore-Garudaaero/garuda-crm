@@ -1,7 +1,8 @@
 /* Garuda CRM · Garuda Connect: a full-screen ring you talk to; answers appear as glass panels with the numbers and lists behind them, read out in a female voice */
 'use strict';
 
-const CC = { listening: false, busy: false, rec: null, speak: true, speaking: false, ans: null, q: '', heard: '', capParts: [], capAt: -1, unlocked: false, aiErr: '' };
+const CC = { listening: false, busy: false, rec: null, speak: true, speaking: false, ans: null, q: '', heard: '', capParts: [], capAt: -1, unlocked: false, aiErr: '', hist: [], pending: null, convo: true, prev: '', mailIdx: null, micOk: false };
+try { CC.convo = localStorage.getItem('garuda-cc-convo') !== '0'; } catch (_) { /* */ }
 try { CC.speak = localStorage.getItem('garuda-cc-speak') !== '0'; } catch (_) { /* no storage */ }
 const ccDay = () => todayStr();
 const ccIsToday = (d) => d && localDate(d) === ccDay();
@@ -103,10 +104,17 @@ function ggContext() {
 /* ---------- voice: a female voice, and a Stop button ---------- */
 const CC_FEMALE = /(female|woman|heera|neerja|veena|kalpana|swara|priya|aditi|raveena|samantha|zira|aria|jenny|michelle|sonia|libby|natasha|karen|moira|tessa|serena|fiona|victoria|allison|ava|susan|catherine|emma|joanna|salli|kimberly|kendra|ivy|google uk english female|google us english)/i;
 const CC_MALE = /(male|david|mark|guy|ravi|rishi|prabhat|daniel|alex|fred|thomas|george|ryan|eric|brian|matthew|justin|joey|google uk english male)/i;
-function ccVoice() {
+/* the most human-sounding voice the device has: Natural / Neural / Online (Edge, Windows), Enhanced / Premium / Siri (Apple), Google voices (Chrome) */
+const CC_NATURAL = /(natural|neural|online|enhanced|premium|siri|wavenet|studio|journey)/i;
+function ccVoices() {
   const vs = ('speechSynthesis' in window ? window.speechSynthesis.getVoices() : []).filter((x) => /^en/i.test(x.lang));
-  const fem = vs.filter((x) => CC_FEMALE.test(x.name) && !/\bmale\b/i.test(x.name.replace(/female/i, '')));
-  return fem.find((x) => /en-IN/i.test(x.lang)) || fem.find((x) => /natural|neural|online/i.test(x.name)) || fem[0] || vs.find((x) => /en-IN/i.test(x.lang) && !CC_MALE.test(x.name)) || vs.find((x) => !CC_MALE.test(x.name)) || vs[0] || null;
+  const score = (v) => (CC_NATURAL.test(v.name) ? 100 : 0) + (/en-IN/i.test(v.lang) ? 12 : /en-GB/i.test(v.lang) ? 8 : /en-US/i.test(v.lang) ? 6 : 0) + (/google/i.test(v.name) ? 5 : 0) + (v.localService ? 0 : 3) - (/(compact|eloquence|zarvox|whisper|bad news|bells|boing|bubbles|cellos|trinoids|albert|jester|organ|superstar|wobble|novelty)/i.test(v.name) ? 200 : 0);
+  return vs.map((v) => ({ v, s: score(v) })).sort((a, b) => b.s - a.s).map((x) => x.v);
+}
+function ccVoice() {
+  const all = ccVoices(); let pick = null;
+  try { const want = localStorage.getItem('garuda-cc-voice'); if (want) pick = all.find((v) => v.name === want); } catch (_) { /* */ }
+  return pick || all[0] || null;
 }
 if ('speechSynthesis' in window) { try { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices(); } catch (_) { /* */ } }
 /* ---------- speaking: sentence by sentence (long speech gets cut off in Chrome), with captions; phones need a first tap to unlock sound ---------- */
@@ -115,18 +123,19 @@ function ccUnlock() {
   try { const u = new window.SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); window.speechSynthesis.resume(); CC.unlocked = true; } catch (_) { /* */ }
 }
 function ccSentences(t) { return String(t || '').replace(/\s+/g, ' ').match(/[^.!?]+[.!?]*/g)?.map((x) => x.trim()).filter(Boolean) || []; }
-function ccSay(text) {
+function ccSay(text, after) {
+  CC.afterSay = after || null;
   const parts = ccSentences(text); CC.capParts = parts; CC.capAt = -1; ccCaption();
-  if (!CC.speak || !parts.length || !('speechSynthesis' in window)) return;
+  if (!CC.speak || !parts.length || !('speechSynthesis' in window)) { const f = CC.afterSay; CC.afterSay = null; if (f && CC.speak) f(); return; }
   try {
     const ss = window.speechSynthesis; ss.cancel(); ss.resume();
     const v0 = ccVoice(); CC.speaking = true; ccVoiceUI();
     parts.forEach((p, i) => {
       const u = new window.SpeechSynthesisUtterance(p.replace(/₹\s?/g, 'rupees ').replace(/\bP([1-5])\b/g, 'P $1').replace(/\bCoE\b/g, 'C O E').replace(/\bRPTO\b/g, 'R P T O'));
       if (v0) { u.voice = v0; u.lang = v0.lang; } else u.lang = 'en-IN';
-      u.rate = 1.0; u.pitch = 1.1;
+      u.rate = 0.98; u.pitch = 1.0;
       u.onstart = () => { CC.capAt = i; ccCaption(); };
-      if (i === parts.length - 1) u.onend = u.onerror = () => { CC.speaking = false; CC.capAt = parts.length; ccVoiceUI(); ccCaption(); };
+      if (i === parts.length - 1) u.onend = u.onerror = () => { CC.speaking = false; CC.capAt = parts.length; ccVoiceUI(); ccCaption(); const f = CC.afterSay; CC.afterSay = null; if (f) setTimeout(f, 350); };
       ss.speak(u);
     });
   } catch (_) { CC.speaking = false; ccVoiceUI(); }
@@ -138,20 +147,22 @@ function ccCaption() {
   const p = CC.capParts || []; box.hidden = !p.length;
   box.innerHTML = p.map((x, i) => `<span class="${i < CC.capAt ? 'said' : i === CC.capAt ? 'now' : ''}">${esc(x)}</span>`).join(' ');
 }
-window.addEventListener('hashchange', () => { if (!/^#connect/.test(location.hash)) { ccHush(); CC.rec?.abort?.(); document.body.classList.remove('gc-on'); } });
+window.addEventListener('hashchange', (e) => { try { const o = new URL(e.oldURL).hash.slice(1).split('/')[0]; if (o && o !== 'connect') CC.prev = o; } catch (_) { /* */ } if (!/^#connect/.test(location.hash)) { ccHush(); CC.rec?.abort?.(); document.body.classList.remove('gc-on'); } });
 
 /* ---------- listening: tap Talk to Garuda, speak, and a 2-second pause sends it ---------- */
-function ccListen(el, on) {
+function ccListen(el, on, auto) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   ccUnlock();
   if (!SR) return toast('This browser cannot listen. Use Chrome (Android, Windows, Mac) or Safari on iPhone with Siri switched on, or type the question.', true);
   if (on === false) { CC.rec?.stop(); return; }
+  if (auto && !CC.micOk) return;
   if (CC.listening) return;
   ccHush();
   const r = new SR(); CC.rec = r; r.lang = 'en-IN'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
   CC.listening = true; CC.heard = ''; ccPaint(el);
-  let pause = null; const quiet = setTimeout(() => { if (!CC.heard) r.stop(); }, 9000);
+  let pause = null; const quiet = setTimeout(() => { if (!CC.heard) r.stop(); }, auto ? 6000 : 9000);
   const arm = () => { clearTimeout(pause); pause = setTimeout(() => r.stop(), 2000); };
+  r.onstart = () => { CC.micOk = true; };
   r.onresult = (e) => { let s0 = ''; for (const res of e.results) s0 += res[0].transcript; CC.heard = s0.trim(); const h = el.querySelector('.gc-heard'); if (h) h.textContent = CC.heard || 'Listening…'; arm(); };
   r.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Allow the microphone for this site (tap the lock or “aA” in the address bar → Microphone → Allow).' : 'Could not hear that: ' + e.error, true); };
   r.onend = () => { clearTimeout(pause); clearTimeout(quiet); CC.listening = false; CC.rec = null; const q = CC.heard; ccPaint(el); if (q) ccAsk(q, el); };
@@ -209,7 +220,7 @@ async function ccAnswer(q) {
   if (topic === 'mail' || topic === 'drive') {
     if (ggOn() && !GG.mail) await ggFetch();
     const c = ccGoogleCard(topic);
-    return { title: c.title, icon: c.icon, say: c.say, needsGoogle: c.needsGoogle, slabs: c.needsGoogle ? [] : [slab(c.kpis[0]?.l || '', c.kpis[0]?.v || '', '', '', {}), ...(c.kpis[1] ? [slab(c.kpis[1].l, c.kpis[1].v, '', c.kpis[1].tone)] : []), slab(topic === 'mail' ? 'Inbox · last 24 h' : 'Files changed', '', '', '', { wide: true, list: (c.list || []).map((x) => ({ t: x.t, s: x.s, r: x.m, href: x.href, hot: x.hot })) })] };
+    return { title: c.title, icon: c.icon, say: c.say, needsGoogle: c.needsGoogle, slabs: c.needsGoogle ? [] : [slab(c.kpis[0]?.l || '', c.kpis[0]?.v || '', '', '', {}), ...(c.kpis[1] ? [slab(c.kpis[1].l, c.kpis[1].v, '', c.kpis[1].tone)] : []), slab(topic === 'mail' ? 'Inbox · last 24 h' : 'Files changed', '', '', '', { wide: true, list: (c.list || []).map((x, i) => ({ t: x.t, s: x.s, r: x.m, mail: topic === 'mail' ? i : null, href: topic === 'mail' ? null : x.href, hot: x.hot })) })] };
   }
   if (topic === 'deals') {
     const d = [...F.deals].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
@@ -276,20 +287,97 @@ async function ccAnswer(q) {
     slabs: [slab('Calls', nfmt(calls.length), byWho[0] ? `top: ${byWho[0][0].split(' ')[0]}` : when), slab('New leads', nfmt(newLeads.length), when, newLeads.length ? 'good' : ''), slab('Activity', '', '', '', { wide: true, list: [...won.map((l) => ({ t: '🏆 Won: ' + (L.company(l) || l.name), s: L.ownerLabel(l), r: inrShort(l.value), lead: l.id })), ...newDeals.map((l) => ({ t: 'New deal: ' + (L.company(l) || l.name), s: L.ownerLabel(l), r: inrShort(l.value), lead: l.id })), ...newLeads.slice(0, 8).map((l) => ({ t: 'New lead: ' + l.name, s: l.source || '', r: '', lead: l.id })), ...byWho.slice(0, 6).map(([n, a]) => ({ t: n, s: 'calls and remarks', r: nfmt(a.length) }))].slice(0, 14) }), slab('Won', nfmt(won.length), inrShort(sum(won, (l) => l.value)), won.length ? 'good' : ''), slab(R.label === 'today' ? 'Overdue now' : 'Lost', nfmt(R.label === 'today' ? F.over.length : lost.length), '', (R.label === 'today' ? F.over.length : lost.length) ? 'bad' : 'good')] };
 }
 
+/* ---------- reading one email ---------- */
+function b64u(x) { try { const t = atob(String(x || '').replace(/-/g, '+').replace(/_/g, '/')); return decodeURIComponent(escape(t)); } catch (_) { try { return atob(String(x || '').replace(/-/g, '+').replace(/_/g, '/')); } catch (__) { return ''; } } }
+function mailText(part) {
+  if (!part) return '';
+  if (part.mimeType === 'text/plain' && part.body?.data) return b64u(part.body.data);
+  for (const p of part.parts || []) { const t = mailText(p); if (t) return t; }
+  if (part.mimeType === 'text/html' && part.body?.data) { const d = document.createElement('div'); d.innerHTML = b64u(part.body.data).replace(/<(script|style)[\s\S]*?<\/\1>/gi, ''); return d.textContent || ''; }
+  for (const p of part.parts || []) if (p.mimeType === 'text/html' && p.body?.data) { const d = document.createElement('div'); d.innerHTML = b64u(p.body.data); return d.textContent || ''; }
+  return '';
+}
+async function ggOpenMail(m) {
+  const full = await ggGet(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`);
+  const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name, x.value]));
+  const body = mailText(full.payload).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').replace(/^>.*$/gm, '').trim();
+  const clean = body.split(/\n(On .+wrote:|-{2,}\s*Original Message|From: )/)[0].trim();
+  const first = ccSentences(clean.replace(/\s+/g, ' ')).slice(0, 4).join(' ');
+  return { title: 'Email', icon: 'mail', href: `https://mail.google.com/mail/u/0/#all/${m.id}`,
+    say: `Email from ${m.from}, subject: ${m.subject}. ${first || 'It has no text, only attachments or images.'}`,
+    slabs: [slab('From', m.from, h.From?.match(/<(.+)>/)?.[1] || ''), slab('Received', new Date(m.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), m.unread ? 'unread' : '', m.unread ? 'info' : ''), slab(m.subject, '', '', '', { wide: true, body: clean.slice(0, 6000) || '(no text)' })] };
+}
+
+/* ---------- the conversation: follow-up questions, yes / no, "open the first one" ---------- */
+const ORD = { first: 0, '1st': 0, one: 0, top: 0, latest: 0, newest: 0, second: 1, '2nd': 1, two: 1, third: 2, '3rd': 2, three: 2, fourth: 3, '4th': 3, four: 3, fifth: 4, '5th': 4, five: 4, last: -1 };
+function ordIn(s) { const m = s.match(/\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|top|latest|newest|last|one|two|three|four|five)\b/) || s.match(/number (\d+)/); if (!m) return null; return /^\d+$/.test(m[1]) ? Number(m[1]) - 1 : ORD[m[1]]; }
+function ccFollow(A) {
+  const rows = A.slabs.flatMap((x) => x.list || []).filter((r) => r.lead);
+  const t = A.title.toLowerCase();
+  if (A.kind === 'mail' && (GG.mail || []).length) return { q: 'Shall I read the latest one?', act: (el) => ccMailAt(0, el), chips: ['Read the latest email', 'Read the second one', 'Any unread from today?'] };
+  if (A.kind === 'email') return { q: 'Do you want me to open it in Gmail?', act: () => { window.open(A.href, '_blank', 'noopener'); }, chips: ['Read the next email', 'Show my deals'] };
+  if (/deal/.test(t) && rows[0]) return { q: `Shall I open the top one, ${rows[0].t}?`, act: () => openLead(rows[0].lead), chips: ['Open the top deal', 'Which deals close this week?', 'Who owns the most pipeline?'] };
+  if (/follow/.test(t) && rows[0]) return { q: `Shall I open the oldest one, ${rows[0].t}?`, act: () => openLead(rows[0].lead), chips: ['Open the first one', 'How many are due today?', 'Who has the most overdue?'] };
+  if (/lead/.test(t) && rows[0]) return { q: `Shall I open ${rows[0].t}?`, act: () => openLead(rows[0].lead), chips: ['Open the first one', 'Where do leads come from?', 'Show the hot leads'] };
+  if (/what happened/.test(t)) return { q: 'Do you want the overdue follow-ups next?', act: (el) => ccAsk('which follow-ups are overdue', el), chips: ['What happened yesterday?', 'What is the deal potential?', 'How is the team doing?'] };
+  if (/revenue/.test(t)) return { q: 'Do you want the deal potential to close the gap?', act: (el) => ccAsk('what is the deal potential', el), chips: ['What is the deal potential?', 'Payments this month', 'Who is behind target?'] };
+  if (/team/.test(t)) return { q: 'Do you want to see anyone in detail? Say their name.', act: null, chips: Object.values(DB.t.profiles).filter((p) => p.active && p.full_name).slice(0, 3).map((p) => `How is ${p.full_name.split(' ')[0]} doing?`) };
+  return { q: rows[0] ? `Shall I open ${rows[0].t}?` : '', act: rows[0] ? () => openLead(rows[0].lead) : null, chips: ['What happened today?', 'What is the deal potential?', 'Any new email?'] };
+}
+async function ccMailAt(i, el) {
+  if (!ggOn()) { CC.ans = { ...ccGoogleCard('mail'), kind: 'mail', slabs: [], needsGoogle: true, text: 'Connect Google first: tap Connect Google at the top.', src: 'Garuda' }; ccPaint(el); return ccSay(CC.ans.text); }
+  if (!GG.mail) await ggFetch();
+  const list = GG.mail || []; const m = list[i < 0 ? list.length - 1 : i];
+  if (!m) { const t = 'There is no such email in the last day.'; CC.ans = { title: 'Email', icon: 'mail', slabs: [], text: t, src: 'Garuda', kind: 'email' }; ccPaint(el); return ccSay(t); }
+  CC.busy = true; CC.q = CC.q || 'Open the email'; ccPaint(el);
+  try { const A = await ggOpenMail(m); CC.mailIdx = list.indexOf(m); ccDeliver({ ...A, kind: 'email' }, A.say, 'Gmail', el); } catch (e) { CC.busy = false; ccPaint(el); toast(e.message, true); }
+}
+function ccDeliver(A, text, src, el) {
+  const F = ccFollow({ ...A, kind: A.kind });
+  CC.busy = false; CC.ans = { ...A, text, src, chips: F.chips }; CC.pending = F.act ? F : null;
+  CC.hist.push({ q: CC.q, a: text }); CC.hist = CC.hist.slice(-6);
+  ccPaint(el);
+  const ask = F.q && CC.convo ? ` ${F.q}` : '';
+  ccSay(text + ask, ask && CC.speak ? () => { if (!CC.listening && ST.view === 'connect' && document.body.classList.contains('gc-on')) ccListen(el, true, true); } : null);
+  if (ask) { CC.capParts = ccSentences(text + ask); }
+}
+/* commands that act on what is on screen */
+function ccCommand(q, el) {
+  const s = q.toLowerCase().trim();
+  if (/^(yes|yeah|yep|sure|ok(ay)?|please( do)?|go ahead|do it|haan|ha|ji)\b/.test(s) && CC.pending?.act) { const f = CC.pending.act; CC.pending = null; const r = f(el); if (!(r && r.then)) ccSay('Done, it is open.'); return true; }
+  if (/^(no|nope|not now|that'?s all|stop|cancel|thanks|thank you)\b/.test(s)) { CC.pending = null; ccSay('Okay. Tap the ring when you need me.'); return true; }
+  const n = ordIn(s);
+  if (/\b(mail|email|inbox)\b/.test(s) && /(open|read|show|what|next|previous)/.test(s)) {
+    if (/next/.test(s)) { ccMailAt((CC.mailIdx ?? -1) + 1, el); return true; }
+    const from = s.match(/(?:from|by)\s+([a-z][\w .'-]{1,40})/);
+    if (from && (GG.mail || []).length) { const i = GG.mail.findIndex((m) => m.from.toLowerCase().includes(from[1].trim().split(' ')[0])); if (i >= 0) { ccMailAt(i, el); return true; } }
+    if (n != null) { ccMailAt(n, el); return true; }
+  }
+  if (CC.ans?.kind === 'mail' && n != null && /(open|read|show)/.test(s)) { ccMailAt(n, el); return true; }
+  if (n != null && /(open|show|call)/.test(s)) {
+    const rows = (CC.ans?.slabs || []).flatMap((x) => x.list || []).filter((r) => r.lead);
+    const r = rows[n < 0 ? rows.length - 1 : n]; if (r) { openLead(r.lead); ccSay(`Opening ${r.t}.`); return true; }
+  }
+  return false;
+}
+
 /* ---------- asking ---------- */
 async function ccAsk(q, el) {
   q = (q || '').trim(); if (!q) return;
-  CC.q = q; CC.busy = true; CC.ans = null; ccPaint(el);
+  CC.q = q;
+  if (ccCommand(q, el)) return;
+  CC.busy = true; CC.ans = null; ccPaint(el);
   const A = await ccAnswer(q);
+  A.kind = /email/i.test(A.title) ? 'mail' : A.kind;
   let text = '', src = 'From the CRM';
   if (DB.settings.ai?.enabled !== false && DB.mode === 'live') {
     try {
-      const r = await DB.fn('ai', { action: 'ask', question: `${q}\n\nYou are Garuda, the CRM's voice assistant. Answer in 2 to 4 short spoken sentences, numbers in Indian style (lakh, crore). Facts the CRM computed for this question (${A.title}): ${A.say}\nPanels on screen: ${A.slabs.map((x) => `${x.label}: ${x.value || ''} ${x.sub || ''}${x.list ? ' [' + x.list.slice(0, 8).map((i) => `${i.t} ${i.r || ''}`).join('; ') + ']' : ''}`).join(' | ')}\nThe day so far: ${ccTopics(ccFacts()).map((x) => x.say).join(' ')}${ggContext()}` });
+      const r = await DB.fn('ai', { action: 'ask', question: `${q}\n\nYou are Garuda, the CRM's voice assistant, talking to ${DB.me?.full_name || 'the user'}. Answer in 2 to 4 short spoken sentences, numbers in Indian style (lakh, crore). Earlier in this conversation: ${CC.hist.map((h) => `Q: ${h.q} A: ${h.a}`).join(' | ') || 'nothing'}\nFacts the CRM computed for this question (${A.title}): ${A.say}\nPanels on screen: ${A.slabs.map((x) => `${x.label}: ${x.value || ''} ${x.sub || ''}${x.list ? ' [' + x.list.slice(0, 8).map((i) => `${i.t} ${i.r || ''}`).join('; ') + ']' : ''}`).join(' | ')}\nThe day so far: ${ccTopics(ccFacts()).map((x) => x.say).join(' ')}${ggContext()}` });
       if (r?.answer) { text = r.answer; src = 'Claude'; CC.aiErr = ''; }
     } catch (e) { CC.aiErr = String(e.message || e); }
   }
   if (!text) text = A.say;
-  CC.busy = false; CC.ans = { ...A, text, src }; ccPaint(el); ccSay(text);
+  ccDeliver(A, text, src, el);
 }
 
 /* ---------- the screen ---------- */
@@ -309,7 +397,8 @@ function gcSlab(x, i, n) {
     <h4>${esc(x.label)}</h4>
     <div class="gc-glass">${x.value !== '' && x.value != null ? `<b class="gc-v">${esc(String(x.value))}</b>` : ''}${x.sub ? `<span class="gc-s">${esc(x.sub)}</span>` : ''}
       ${x.meter != null ? `<div class="gc-meter"><i style="width:${clamp(x.meter, 0, 100)}%"></i></div>` : ''}
-      ${x.list ? (x.list.length ? `<ul class="gc-list">${x.list.map((r) => `<li>${r.lead ? `<button type="button" data-lead="${r.lead}">` : r.href ? `<a href="${esc(r.href)}" target="_blank" rel="noopener" class="${r.hot ? 'hot' : ''}">` : '<div>'}<span class="grow"><b>${esc(r.t || '')}</b>${r.s ? `<span>${esc(r.s)}</span>` : ''}</span>${r.r ? `<em>${esc(String(r.r))}</em>` : ''}${r.lead ? '</button>' : r.href ? '</a>' : '</div>'}</li>`).join('')}</ul>` : '<p class="gc-none">Nothing here.</p>') : ''}
+      ${x.body ? `<div class="gc-body">${esc(x.body)}</div>` : ''}
+      ${x.list ? (x.list.length ? `<ul class="gc-list">${x.list.map((r) => `<li>${r.lead ? `<button type="button" data-lead="${r.lead}">` : r.mail != null ? `<button type="button" data-mail="${r.mail}" class="${r.hot ? 'hot' : ''}">` : r.href ? `<a href="${esc(r.href)}" target="_blank" rel="noopener" class="${r.hot ? 'hot' : ''}">` : '<div>'}<span class="grow"><b>${esc(r.t || '')}</b>${r.s ? `<span>${esc(r.s)}</span>` : ''}</span>${r.r ? `<em>${esc(String(r.r))}</em>` : ''}${r.lead || r.mail != null ? '</button>' : r.href ? '</a>' : '</div>'}</li>`).join('')}</ul>` : '<p class="gc-none">Nothing here.</p>') : ''}
     </div></section>`;
 }
 function ccPaint(el) {
@@ -333,20 +422,23 @@ function ccPaint(el) {
     ${A ? `<div class="gc-deck-wrap"><div class="gc-q"><span>“${esc(CC.q || '')}”</span><button type="button" id="gcclose" aria-label="Close the answer">${svg('x')}</button></div>
       <div class="gc-deck">${A.slabs.map((x, i) => gcSlab(x, i, A.slabs.length)).join('')}</div>
       ${A.needsGoogle ? `<div class="gc-gneed">${svg('google')} <span>Connect your Google account to see your email and Drive.</span><button type="button" class="btn small primary" data-gghelp>How to connect</button></div>` : ''}
-      ${A.go ? `<button type="button" class="gc-open" data-ccgo="${esc(A.go)}">Open in the CRM →</button>` : ''}</div>` : ''}
+      ${A.chips?.length ? `<div class="gc-chips">${A.chips.map((c) => `<button type="button" data-chip="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+      ${A.href ? `<a class="gc-open" href="${esc(A.href)}" target="_blank" rel="noopener">Open in Gmail →</a>` : ''}${A.go ? `<button type="button" class="gc-open" data-ccgo="${esc(A.go)}">Open in the CRM →</button>` : ''}</div>` : ''}
     <div class="gc-cap" ${CC.capParts?.length ? '' : 'hidden'}></div>
     <footer class="gc-bot">
       ${CC.listening ? `<button type="button" class="gc-talk stop" id="gcstop">${svg('stop')} Stop</button>` : `<button type="button" class="gc-talk" id="gctalk">${svg('mic')} Talk to Garuda</button>`}
       <button type="button" class="gc-talk hush gc-hush" id="gchush" ${CC.speaking ? '' : 'hidden'}>${svg('mute')} Stop voice</button>
       <form class="gc-type" id="gcform"><input id="gcq" placeholder="or type: what happened yesterday? what’s the deal potential?" autocomplete="off" aria-label="Ask Garuda"><button type="submit" aria-label="Ask">${svg('send')}</button></form>
       <label class="gc-spk"><input type="checkbox" id="gcspk" ${CC.speak ? 'checked' : ''}> Voice</label>
+      <label class="gc-spk" title="After answering, Garuda asks a follow-up and listens for your reply"><input type="checkbox" id="gcconvo" ${CC.convo ? 'checked' : ''}> Conversation</label>
+      ${ccVoices().length > 1 ? `<select id="gcvoice" class="gc-vsel" aria-label="Voice">${ccVoices().slice(0, 14).map((v) => `<option value="${esc(v.name)}" ${ccVoice()?.name === v.name ? 'selected' : ''}>${esc(v.name.replace(/Microsoft |Google | \(.*?\)|Online|\(Natural\)/g, '').trim() || v.name)}${CC_NATURAL.test(v.name) ? ' ★' : ''}</option>`).join('')}</select>` : ''}
       ${A ? `<span class="gc-src">${esc(A.src)}${A.src !== 'Claude' && CC.aiErr ? ` · Claude not connected (${esc(CC.aiErr.includes('ANTHROPIC') ? 'Anthropic key not added in Supabase' : CC.aiErr.slice(0, 60))})` : ''}</span>` : ''}
     </footer>`;
   ccCaption(); ccBind(el);
 }
 function ccBind(el) {
   const q = (id) => el.querySelector(id);
-  q('#gcexit').onclick = () => { ccHush(); document.body.classList.remove('gc-on'); history.length > 1 ? history.back() : go('command'); };
+  q('#gcexit').onclick = () => { ccHush(); CC.rec?.abort?.(); CC.listening = false; document.body.classList.remove('gc-on'); el.querySelector('#gcbox')?.remove(); go(CC.prev && VIEWS[CC.prev] ? CC.prev : 'command'); };
   const talk = () => { ccUnlock(); if (CC.listening) ccListen(el, false); else ccListen(el, true); };
   q('#gctalk')?.addEventListener('click', talk); q('#gctalk2').onclick = talk;
   q('#gcstop')?.addEventListener('click', () => ccListen(el, false));
@@ -357,6 +449,10 @@ function ccBind(el) {
   el.querySelectorAll('[data-gq]').forEach((b) => (b.onclick = () => { ccUnlock(); ccAsk(b.dataset.gq, el); }));
   el.querySelectorAll('[data-ccgo]').forEach((b) => (b.onclick = () => { document.body.classList.remove('gc-on'); go(b.dataset.ccgo); }));
   el.querySelectorAll('.gc-deck [data-lead]').forEach((b) => (b.onclick = () => openLead(b.dataset.lead)));
+  el.querySelectorAll('.gc-deck [data-mail]').forEach((b) => (b.onclick = () => { ccUnlock(); CC.q = 'Open this email'; ccMailAt(Number(b.dataset.mail), el); }));
+  el.querySelectorAll('[data-chip]').forEach((b) => (b.onclick = () => { ccUnlock(); ccAsk(b.dataset.chip, el); }));
+  q('#gcconvo')?.addEventListener('change', (e) => { CC.convo = e.target.checked; try { localStorage.setItem('garuda-cc-convo', CC.convo ? '1' : '0'); } catch (_) { /* */ } });
+  q('#gcvoice')?.addEventListener('change', (e) => { try { localStorage.setItem('garuda-cc-voice', e.target.value); } catch (_) { /* */ } ccUnlock(); const was = CC.speak; CC.speak = true; ccSay('Hello, I am Garuda. This is how I sound.'); CC.speak = was; });
   el.querySelectorAll('[data-gghelp]').forEach((b) => (b.onclick = () => ggHelp(el)));
   bindTheme(el);
 }

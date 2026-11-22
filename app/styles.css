@@ -2569,3 +2569,48 @@ body.gc-on .tabbar,body.gc-on .mtop{visibility:hidden}
   .gc.answer .gc-ring{width:92px}
   .gc-cap{font-size:14px;max-height:4.6em;overflow:auto}
 }
+
+/* ===================== v6.0 · loading screen, small theme switch, Garuda Connect conversation ===================== */
+.boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;perspective:900px;text-align:center;padding:24px}
+.boot-orb{position:relative;width:min(190px,46vw);aspect-ratio:1;border:0;background:none;cursor:pointer;transform-style:preserve-3d;transition:transform .25s ease-out;padding:0}
+.boot-rings{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.boot-rings circle{fill:none;stroke:url(#bootg);transform-origin:100px 100px}
+.boot-rings .br1{stroke-width:3;stroke-dasharray:160 60 40 60 260 0;animation:bspin 3.2s linear infinite}
+.boot-rings .br2{stroke-width:6;stroke-linecap:round;stroke-dasharray:70 430;animation:bspin 1.6s cubic-bezier(.6,.1,.4,.9) infinite reverse;opacity:.85}
+.boot-rings .br3{stroke-width:1.5;stroke-dasharray:3 6;animation:bspin 9s linear infinite;opacity:.6}
+.boot-logo{position:absolute;inset:24%;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 50% 35%,#fff,#e8f0fd 70%);box-shadow:inset 0 2px 0 #fff,0 18px 40px -14px rgba(11,99,214,.55),0 0 0 1px rgba(11,99,214,.12);animation:bbreath 2.2s ease-in-out infinite;transform:translateZ(30px)}
+.boot-logo img{width:62%;height:62%;object-fit:contain}
+.boot-logo b{font-family:var(--f-display,'Inter Tight',sans-serif);font-size:clamp(40px,10vw,56px);background:linear-gradient(135deg,#4599FE,#0B63D6 55%,#E02446);-webkit-background-clip:text;background-clip:text;color:transparent}
+.boot-dot{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#E02446;box-shadow:0 0 14px #E02446;animation:borbit 2.4s linear infinite}
+.boot-orb.spin .boot-logo{animation:bflip .9s cubic-bezier(.3,1.4,.5,1)}
+.boot h1{margin:8px 0 0;font-size:20px;letter-spacing:.01em;color:var(--ink)}
+.boot p{margin:0;color:var(--ink2);font-size:14px;min-height:1.4em}
+.boot-bar{width:min(220px,60vw);height:4px;border-radius:99px;background:color-mix(in srgb,var(--accent,#0B63D6) 14%,transparent);overflow:hidden}
+.boot-bar i{display:block;width:40%;height:100%;border-radius:99px;background:linear-gradient(90deg,#4599FE,#0B63D6,#E02446);animation:bbar 1.3s ease-in-out infinite}
+@keyframes bspin{to{transform:rotate(360deg)}}
+@keyframes bbreath{50%{transform:translateZ(30px) scale(1.05)}}
+@keyframes borbit{from{transform:rotate(0) translateX(calc(min(190px,46vw) / 2 - 2px))}to{transform:rotate(360deg) translateX(calc(min(190px,46vw) / 2 - 2px))}}
+@keyframes bflip{from{transform:translateZ(30px) rotateY(0)}to{transform:translateZ(30px) rotateY(360deg)}}
+@keyframes bbar{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+@media (prefers-reduced-motion:reduce){.boot *{animation:none!important}}
+
+/* theme switch: small, no words, to the side */
+.sb-theme{justify-content:flex-start!important;padding:2px 4px!important}
+.sb-theme .tswitch:not(.mini),.sb-theme .tswitch{width:46px!important;height:24px!important;padding:0!important;min-width:0!important}
+.sb-theme .tswitch .tw-l{display:none!important}
+.sb-theme .tswitch .tw-k{width:22px!important;height:22px!important;margin-top:-11px!important;top:50%!important}
+.sb-theme .tswitch .tw-k svg{width:13px!important;height:13px!important}
+.sb-theme .tswitch.on .tw-k{left:calc(100% - 23px)!important}
+.sb-theme .tswitch:not(.on) .tw-k{left:1px!important}
+.gc-tr .tswitch{width:46px!important;height:24px!important}.gc-tr .tswitch .tw-l{display:none!important}
+.gc-tr .tswitch .tw-k{width:22px!important;height:22px!important;margin-top:-11px!important;top:50%!important}.gc-tr .tswitch.on .tw-k{left:calc(100% - 23px)!important}.gc-tr .tswitch:not(.on) .tw-k{left:1px!important}
+@media (min-width:861px){.sb-mini .sb-theme{justify-content:center!important}}
+
+/* Garuda Connect: suggestion chips, an email's text, the voice picker */
+.gc-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:900px}
+.gc-chips button{padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--glass2);color:var(--ink);font-size:13px;font-weight:500;cursor:pointer;backdrop-filter:blur(8px)}
+.gc-chips button:hover{background:color-mix(in srgb,var(--glow) 22%,transparent)}
+.gc-body{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--ink);overflow-wrap:anywhere}
+.gc-list li>button.hot{border-left:3px solid var(--glow)}
+.gc-vsel{max-width:180px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass2);color:var(--ink);font-size:12.5px}
+.gc-vsel option{color:#0b1f3d}
