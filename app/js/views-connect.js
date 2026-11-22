@@ -337,8 +337,8 @@ function ccDeliver(A, text, src, el) {
   CC.busy = false; CC.ans = { ...A, text, src, chips: F.chips }; CC.pending = F.act ? F : null;
   CC.hist.push({ q: CC.q, a: text }); CC.hist = CC.hist.slice(-6);
   ccPaint(el);
-  const ask = F.q && CC.convo ? ` ${F.q}` : '';
-  ccSay(text + ask, ask && CC.speak ? () => { if (!CC.listening && ST.view === 'connect' && document.body.classList.contains('gc-on')) ccListen(el, true, true); } : null);
+  const ask = F.q && CC.convo && src !== 'Claude' ? ` ${F.q}` : '';
+  ccSay(text + ask, (ask || (src === 'Claude' && /\?\s*$/.test(text) && CC.convo)) && CC.speak ? () => { if (!CC.listening && ST.view === 'connect' && document.body.classList.contains('gc-on')) ccListen(el, true, true); } : null);
   if (ask) { CC.capParts = ccSentences(text + ask); }
 }
 /* commands that act on what is on screen */
@@ -370,9 +370,11 @@ async function ccAsk(q, el) {
   const A = await ccAnswer(q);
   A.kind = /email/i.test(A.title) ? 'mail' : A.kind;
   let text = '', src = 'From the CRM';
+  const F0 = ccFollow({ ...A });
   if (DB.settings.ai?.enabled !== false && DB.mode === 'live') {
     try {
-      const r = await DB.fn('ai', { action: 'ask', question: `${q}\n\nYou are Garuda, the CRM's voice assistant, talking to ${DB.me?.full_name || 'the user'}. Answer in 2 to 4 short spoken sentences, numbers in Indian style (lakh, crore). Earlier in this conversation: ${CC.hist.map((h) => `Q: ${h.q} A: ${h.a}`).join(' | ') || 'nothing'}\nFacts the CRM computed for this question (${A.title}): ${A.say}\nPanels on screen: ${A.slabs.map((x) => `${x.label}: ${x.value || ''} ${x.sub || ''}${x.list ? ' [' + x.list.slice(0, 8).map((i) => `${i.t} ${i.r || ''}`).join('; ') + ']' : ''}`).join(' | ')}\nThe day so far: ${ccTopics(ccFacts()).map((x) => x.say).join(' ')}${ggContext()}` });
+      const facts = `Question topic: ${A.title}\nWhat the CRM computed: ${A.say}\nPanels on screen: ${A.slabs.map((x) => `${x.label}: ${x.value || ''} ${x.sub || ''}${x.list ? ' [' + x.list.slice(0, 10).map((i) => `${i.t}${i.s ? ' (' + i.s + ')' : ''} ${i.r || ''}`).join('; ') + ']' : ''}${x.body ? ' Text: ' + x.body.slice(0, 1500) : ''}`).join(' | ')}\nThe day so far: ${ccTopics(ccFacts()).map((x) => x.say).join(' ')}${ggContext()}${F0.q ? `\nIf you end with a follow-up question, ask exactly: "${F0.q}"` : ''}`;
+      const r = await DB.fn('garuda-ask', { question: q, facts, history: CC.hist, name: DB.me?.full_name || '' });
       if (r?.answer) { text = r.answer; src = 'Claude'; CC.aiErr = ''; }
     } catch (e) { CC.aiErr = String(e.message || e); }
   }
@@ -432,7 +434,7 @@ function ccPaint(el) {
       <label class="gc-spk"><input type="checkbox" id="gcspk" ${CC.speak ? 'checked' : ''}> Voice</label>
       <label class="gc-spk" title="After answering, Garuda asks a follow-up and listens for your reply"><input type="checkbox" id="gcconvo" ${CC.convo ? 'checked' : ''}> Conversation</label>
       ${ccVoices().length > 1 ? `<select id="gcvoice" class="gc-vsel" aria-label="Voice">${ccVoices().slice(0, 14).map((v) => `<option value="${esc(v.name)}" ${ccVoice()?.name === v.name ? 'selected' : ''}>${esc(v.name.replace(/Microsoft |Google | \(.*?\)|Online|\(Natural\)/g, '').trim() || v.name)}${CC_NATURAL.test(v.name) ? ' ★' : ''}</option>`).join('')}</select>` : ''}
-      ${A ? `<span class="gc-src">${esc(A.src)}${A.src !== 'Claude' && CC.aiErr ? ` · Claude not connected (${esc(CC.aiErr.includes('ANTHROPIC') ? 'Anthropic key not added in Supabase' : CC.aiErr.slice(0, 60))})` : ''}</span>` : ''}
+      ${A ? `<span class="gc-src">${esc(A.src)}${A.src !== 'Claude' && CC.aiErr ? ` · Claude could not answer: ${esc(CC.aiErr.includes('ANTHROPIC_API_KEY') ? 'the Anthropic key is not added in Supabase' : CC.aiErr.slice(0, 140))}` : ''}</span>` : ''}
     </footer>`;
   ccCaption(); ccBind(el);
 }
