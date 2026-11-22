@@ -255,7 +255,7 @@ function drill(title, html) {
 const canCEO = () => !hideSales() && (seesAll() || (hasTeam() && !isMember()));
 const canRevenue = () => (!isMember() && !hideSales()) || isFinance();
 const NAV = [
-  ['Workspace', [['connect', 'Claude Connect', 'ring', () => !hideSales()], ['chat', 'Garuda Chat', 'chat', () => true]]],
+  ['Workspace', [['connect', 'Garuda Connect', 'ring', () => !hideSales()], ['chat', 'Garuda Chat', 'chat', () => true]]],
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()], ['automations', 'Automations', 'spark', () => !hideSales() && !isMember()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],

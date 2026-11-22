@@ -250,6 +250,12 @@ function renderShell() {
   $('#mmenu')?.addEventListener('click', () => menu(!document.body.classList.contains('menu-open')));
   $('#tmore')?.addEventListener('click', () => menu(!document.body.classList.contains('menu-open')));
   $('#sscrim')?.addEventListener('click', () => menu(false));
+  /* collapsed menu: names float beside the icons (the icon list scrolls, so the tip is drawn outside it) */
+  if (sbMini) {
+    let tip = document.querySelector('.sbtip'); if (!tip) { tip = document.createElement('div'); tip.className = 'sbtip glass'; tip.hidden = true; document.body.appendChild(tip); }
+    $$('.sbar [data-tip]').forEach((b) => { b.addEventListener('mouseenter', () => { const r = b.getBoundingClientRect(); tip.textContent = b.dataset.tip; tip.style.top = r.top + r.height / 2 + 'px'; tip.style.left = r.right + 12 + 'px'; tip.hidden = false; }); b.addEventListener('mouseleave', () => (tip.hidden = true)); b.addEventListener('click', () => (tip.hidden = true)); });
+    $('.sbar .nav')?.addEventListener('scroll', () => (tip.hidden = true), { passive: true });
+  } else document.querySelector('.sbtip')?.remove();
   $('#sbcol').onclick = () => { sbMini = !sbMini; try { localStorage.setItem('garuda-sb-mini', sbMini ? '1' : '0'); } catch (_) { /* ignore */ } renderShell(); };
   $('#sbsearch').onclick = () => { menu(false); searchPages(); };
   $('#sbuser').onclick = (e) => { e.stopPropagation(); const mm = $('#sbmenu'); mm.hidden = !mm.hidden; };

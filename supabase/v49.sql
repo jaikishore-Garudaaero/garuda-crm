@@ -56,7 +56,7 @@ begin
   body := regexp_replace(coalesce(p_text, ''), '\s+(?=\d{1,2}(?:st|nd|rd|th)?\s*' || mon || '\M\.?\s*(?:\d{2,4})?\s*(?:[-–:]|//))', E'\n', 'gi');
   for line in select trim(x) from regexp_split_to_table(body, E'\n+') x loop
     continue when line = '';
-    mi := null; m := regexp_match(line, '^(\d{1,2})(?:st|nd|rd|th)?[\s./-]*' || mon || '\M\.?[\s,./-]*(\d{4}|\d{2}(?!\d))?\s*(?:[-–:]+|//+|,)?\s*(.*)$', 'i');
+    mi := null; m := regexp_match(line, '^(\d{1,2})(?:st|nd|rd|th)?[\s./-]*' || mon || '\M\.?[\s,./-]*(\d{4}(?!\d)|\d{2}(?!\d))?\s*(?:[-–:]+|//+|,)?\s*(.*)$', 'i');
     if m is not null then
       mi := array_position(array['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'], lower(left(m[2], 3)));
     else
@@ -68,10 +68,10 @@ begin
       continue;
     end if;
     if cur_txt is not null then at := cur_at; txt := cur_txt; return next; end if;
-    if m[3] is not null and m[3] <> '' then y := case when length(m[3]) = 2 then 2000 + m[3]::int else m[3]::int end; end if;
+    if m[3] is not null and m[3] <> '' and (case when length(m[3]) = 2 then 2000 + m[3]::int else m[3]::int end) between 2023 and extract(year from current_date)::int + 1 then y := case when length(m[3]) = 2 then 2000 + m[3]::int else m[3]::int end; end if;
     d := make_date(y, mi, 1) + (least(greatest(m[1]::int, 1), 31) - 1);
     if (m[3] is null or m[3] = '') and last_d is not null and d < last_d - 40 then y := y + 1; d := make_date(y, mi, 1) + (least(greatest(m[1]::int, 1), 31) - 1); end if;
-    if d > current_date + 1 then d := d - interval '1 year'; end if;
+    while d > current_date + 1 loop d := (d - interval '1 year')::date; end loop;
     last_d := d; cur_at := d; cur_txt := coalesce(nullif(trim(m[4]), ''), '(no remark)');
   end loop;
   if cur_txt is not null then at := cur_at; txt := cur_txt; return next; end if;

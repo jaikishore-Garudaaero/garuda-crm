@@ -1,7 +1,7 @@
-/* Garuda CRM · Claude Connect: a ring you tap or talk to, the day's topics as cards you can pin, answers read out */
+/* Garuda CRM · Garuda Connect: a full-screen ring you talk to; answers appear as glass panels with the numbers and lists behind them, read out in a female voice */
 'use strict';
 
-const CC = { open: false, topic: 'today', listening: false, card: null, busy: false, rec: null, speak: true, speaking: false, stopAsked: false };
+const CC = { listening: false, busy: false, rec: null, speak: true, speaking: false, ans: null, q: '', heard: '', capParts: [], capAt: -1, unlocked: false, aiErr: '' };
 try { CC.speak = localStorage.getItem('garuda-cc-speak') !== '0'; } catch (_) { /* no storage */ }
 const ccDay = () => todayStr();
 const ccIsToday = (d) => d && localDate(d) === ccDay();
@@ -46,19 +46,6 @@ function ccTopics(F) {
 /* rupees the way people say them */
 function inrWords(n) { n = Math.round(Number(n) || 0); if (n >= 1e7) return `${(n / 1e7).toFixed(2).replace(/\.?0+$/, '')} crore rupees`; if (n >= 1e5) return `${(n / 1e5).toFixed(2).replace(/\.?0+$/, '')} lakh rupees`; return `${nfmt(n)} rupees`; }
 
-/* ---------- the topics on the ring ---------- */
-const CC_RING = [['today', 'Today', 'spark'], ['leads', 'Leads', 'leads'], ['follow', 'Follow-ups', 'clock'], ['deals', 'Deals', 'deal'], ['revenue', 'Revenue', 'rev'], ['team', 'Team', 'team']];
-function ccBrief(k, F) {
-  const tp = ccTopics(F); const pick = (ids) => tp.filter((x) => ids.includes(x.id));
-  if (k === 'today') return { title: 'Today at a glance', cards: pick(['calls', 'new', 'over', 'due', 'won', 'pay']) };
-  if (k === 'leads') return { title: 'Leads', cards: pick(['new', 'hot', 'never']), say: `${nfmt(F.open.filter((l) => !l.is_deal).length)} leads are open.` };
-  if (k === 'follow') return { title: 'Follow-ups', cards: pick(['over', 'due']), say: `${nfmt(F.fu.length)} leads are in a follow-up status.` };
-  if (k === 'deals') return { title: 'Deals', cards: pick(['deals', 'won']) };
-  if (k === 'revenue') return { title: 'Revenue', cards: pick(['rev', 'pay']) };
-  const ppl = Object.entries(F.byWho).sort((a, b) => b[1].length - a[1].length);
-  return { title: 'Team today', cards: pick(['calls', 'tasks']), people: ppl, say: ppl.length ? ppl.map(([n, a]) => `${n.split(' ')[0]}: ${a.length}`).join(', ') : 'Nobody has logged a call today yet.' };
-}
-
 /* ---------- extra icons for this screen ---------- */
 Object.assign(ICON, {
   stop: '<rect x="6" y="6" width="12" height="12" rx="2.5"/>',
@@ -66,75 +53,6 @@ Object.assign(ICON, {
   drive: '<path d="M8.5 3h7l6 10.5-3.5 6h-12L2.5 13.5z"/><path d="M8.5 3l6.5 11H21.5M2.5 13.5h13l-3.5 6"/>',
   google: '<circle cx="12" cy="12" r="8.5"/><path d="M12 12h8M12 12v-0"/>',
 });
-
-/* ---------- the answer card: what you asked, a short spoken answer, the numbers and the list behind it ---------- */
-function ccCard(kind, F, q) {
-  const now = new Date(); const today = ccDay();
-  const k = (l, v, tone = '') => ({ l, v, tone });
-  if (kind === 'deals') {
-    const d = [...F.deals].sort((a, b) => String(a.expected_close || '9').localeCompare(String(b.expected_close || '9')));
-    return { kind, icon: 'deal', title: 'Deals', kpis: [k('Open deals', nfmt(d.length)), k('Pipeline', inrShort(sum(d, (l) => l.value))), k('Weighted', inrShort(F.wtd)), k('Closing in 14 days', nfmt(F.closing.length), F.closing.length ? 'warn' : ''), k('Won today', nfmt(F.wonToday.length), F.wonToday.length ? 'good' : '')], rows: d, cols: 'deal', go: 'deals',
-      say: `${nfmt(d.length)} open deals worth ${inrWords(sum(d, (l) => l.value))}, ${inrWords(F.wtd)} weighted. ${nfmt(F.closing.length)} close in the next two weeks.${d[0] ? ` The next one to close is ${L.company(d[0]) || d[0].name}${d[0].expected_close ? ' on ' + fmtDate(d[0].expected_close) : ''}.` : ''}` };
-  }
-  if (kind === 'follow') {
-    const rows = [...F.over, ...F.dueToday.filter((l) => !F.over.includes(l))];
-    return { kind, icon: 'clock', title: 'Follow-ups', kpis: [k('Overdue', nfmt(F.over.length), F.over.length ? 'bad' : 'good'), k('Due today', nfmt(F.dueToday.length), F.dueToday.length ? 'warn' : ''), k('In follow-up', nfmt(F.fu.length))], rows, go: 'followups',
-      say: F.over.length ? `${nfmt(F.over.length)} follow-ups are overdue and ${nfmt(F.dueToday.length)} are due today. Start with ${F.over[0].name}.` : `No follow-up is overdue. ${nfmt(F.dueToday.length)} are due today.` };
-  }
-  if (kind === 'leads') {
-    const rows = F.fresh.length ? F.fresh : [...F.hot, ...F.warm];
-    return { kind, icon: 'leads', title: F.fresh.length ? 'New leads today' : 'Hot and warm leads', kpis: [k('New today', nfmt(F.fresh.length), F.fresh.length ? 'good' : ''), k('Open leads', nfmt(F.open.filter((l) => !l.is_deal).length)), k('Hot P1', nfmt(F.hot.length), F.hot.length ? 'bad' : ''), k('Warm P2', nfmt(F.warm.length)), k('Never called', nfmt(F.never.length), F.never.length ? 'warn' : '')], rows, go: 'leads',
-      say: `${nfmt(F.fresh.length)} new leads came in today. ${nfmt(F.hot.length)} hot and ${nfmt(F.warm.length)} warm leads are open, and ${nfmt(F.never.length)} have never been called.` };
-  }
-  if (kind === 'revenue') {
-    const X = F.X;
-    return { kind, icon: 'rev', title: 'Revenue against target', kpis: [k('Target', X.t ? inrShort(X.t) : '—'), k('Achieved', inrShort(X.a), X.p == null ? '' : toneFor(X.p)), k('Collected', inrShort(X.c), 'good'), k('Balance due', inrShort(X.d), X.d ? 'warn' : ''), k(X.lag > 0 ? 'Behind pace' : 'Ahead of pace', inrShort(Math.abs(X.lag || 0)), X.lag > 0 ? 'bad' : 'good')], meter: X.t ? X.p : null, go: 'revenue',
-      list: DB.t.payments.filter((p) => ccIsToday(p.verified_at || p.claimed_at)).map((p) => ({ t: inrFull(p.amount), s: DB.get('leads', p.lead_id)?.name || '', m: p.status })),
-      say: X.t ? `${inrWords(X.a)} achieved of ${inrWords(X.t)}, ${X.p} percent. ${inrWords(X.c)} collected and ${inrWords(X.d)} still due. ${X.lag > 0 ? `We are ${inrWords(X.lag)} behind an even pace.` : 'We are ahead of an even pace.'}` : `${inrWords(X.a)} booked this year.` };
-  }
-  if (kind === 'team') {
-    const ppl = Object.entries(F.byWho).sort((a, b) => b[1].length - a[1].length);
-    return { kind, icon: 'team', title: 'Team today', kpis: [k('Calls and remarks', nfmt(F.rem.length)), k('People active', nfmt(ppl.length)), k('Task steps done', nfmt(F.tasksDone.length), 'good'), k('Tasks overdue', nfmt(F.tasksLate.length), F.tasksLate.length ? 'warn' : '')], go: 'team',
-      list: ppl.map(([n, a]) => ({ t: n, s: `${a.length} call${a.length === 1 ? '' : 's'} or remarks`, m: a.slice(-1)[0]?.outcome || '' })),
-      say: ppl.length ? `${nfmt(F.rem.length)} calls and remarks today. ${ppl.slice(0, 4).map(([n, a]) => `${n.split(' ')[0]} ${a.length}`).join(', ')}.` : 'Nobody has logged a call today yet.' };
-  }
-  if (kind === 'tasks') {
-    return { kind, icon: 'task', title: 'Tasks', kpis: [k('Steps done today', nfmt(F.tasksDone.length), 'good'), k('Overdue', nfmt(F.tasksLate.length), F.tasksLate.length ? 'bad' : 'good')], go: 'tasks',
-      list: F.tasksLate.slice(0, 20).map((t) => ({ t: t.title, s: DB.pname(t.owner), m: 'due ' + fmtDate(t.due_date) })), say: `${nfmt(F.tasksDone.length)} task steps were done today and ${nfmt(F.tasksLate.length)} tasks are overdue.` };
-  }
-  if (kind === 'won') {
-    const w = M.leads().filter((l) => L.won(l) && l.won_at && l.won_at.slice(0, 7) === today.slice(0, 7));
-    return { kind, icon: 'check', title: 'Won this month', kpis: [k('Won today', nfmt(F.wonToday.length), 'good'), k('Won this month', nfmt(w.length), 'good'), k('Value', inrShort(sum(w, (l) => l.value)))], rows: w, cols: 'deal', go: 'deals',
-      say: `${nfmt(w.length)} won this month, worth ${inrWords(sum(w, (l) => l.value))}. ${nfmt(F.wonToday.length)} today.` };
-  }
-  if (kind === 'mail') return ccGoogleCard('mail');
-  if (kind === 'drive') return ccGoogleCard('drive');
-  if (kind === 'person') {
-    const p = q; const r = F.rem.filter((x) => x.author === p.id); const mine = F.open.filter((l) => l.owner === p.id);
-    const od = mine.filter((l) => l.next_followup_at && new Date(l.next_followup_at) < now); const x = tva({ dept: ST.dept, pid: p.id }, TG.per('fy'));
-    return { kind, icon: 'me', title: p.full_name, kpis: [k('Calls today', nfmt(r.length)), k('Open leads and deals', nfmt(mine.length)), k('Follow-ups overdue', nfmt(od.length), od.length ? 'bad' : 'good'), ...(x.t ? [k('Target achieved', x.p + '%', toneFor(x.p))] : [])], rows: od.length ? od : mine.filter((l) => l.is_deal), go: 'team',
-      say: `${p.full_name}: ${nfmt(r.length)} calls or remarks today, ${nfmt(mine.length)} open leads and deals, ${nfmt(od.length)} follow-ups overdue.${x.t ? ` ${x.p} percent of target.` : ''}` };
-  }
-  /* today */
-  return { kind: 'today', icon: 'spark', title: 'Today at a glance', kpis: [k('Calls and remarks', nfmt(F.rem.length)), k('New leads', nfmt(F.fresh.length), F.fresh.length ? 'good' : ''), k('Follow-ups overdue', nfmt(F.over.length), F.over.length ? 'bad' : 'good'), k('Due today', nfmt(F.dueToday.length), F.dueToday.length ? 'warn' : ''), k('Won today', nfmt(F.wonToday.length), F.wonToday.length ? 'good' : ''), k('Payments', nfmt(F.pays.length))],
-    rows: [...F.over.slice(0, 6), ...F.fresh.slice(0, 6)], say: ccTopics(F).filter((x) => ['calls', 'new', 'over', 'won'].includes(x.id)).map((x) => x.say).join(' ') };
-}
-function ccIntent(q, F) {
-  const s = q.toLowerCase();
-  const person = DB.t.profiles.find((p) => p.active && p.full_name && s.includes(p.full_name.split(' ')[0].toLowerCase()) && p.full_name.split(' ')[0].length > 2);
-  if (/\b(e-?mail|mail|inbox|gmail)/.test(s)) return 'mail';
-  if (/\b(drive|file|files|doc|docs|document|sheet|slides)\b/.test(s)) return 'drive';
-  if (person) return { person };
-  if (/revenue|target|collect|achiev|money|behind|pace|balance|payment/.test(s)) return 'revenue';
-  if (/won|win|sale|closed/.test(s)) return 'won';
-  if (/deal|pipeline|clos|proposal/.test(s)) return 'deals';
-  if (/overdue|follow/.test(s)) return 'follow';
-  if (/lead|hot|warm|p1|p2|enquir|new|never/.test(s)) return 'leads';
-  if (/task/.test(s)) return 'tasks';
-  if (/team|who|people|staff|calls?/.test(s)) return 'team';
-  return 'today';
-}
-const CC_TOPIC_KIND = { today: 'today', leads: 'leads', follow: 'follow', deals: 'deals', revenue: 'revenue', team: 'team', mail: 'mail', drive: 'drive' };
 
 /* ---------- Google: today's email and Drive, read in the browser with the signed-in person's own Google account ---------- */
 const GG = { token: null, exp: 0, mail: null, drive: null, loading: false, err: '' };
@@ -144,11 +62,11 @@ function ggLoadScript() {
   return new Promise((res, rej) => { if (window.google?.accounts?.oauth2) return res(); const s0 = document.createElement('script'); s0.src = 'https://accounts.google.com/gsi/client'; s0.async = true; s0.onload = () => res(); s0.onerror = () => rej(new Error('Could not load Google sign-in')); document.head.appendChild(s0); });
 }
 async function ggConnect(el) {
-  if (!ggClientId()) return toast(isHead() ? 'Add the Google client ID first (the setup box under the ring).' : 'Ask your Admin to set up Google in Claude Connect.', true);
+  if (!ggClientId()) return ggHelp(el);
   try {
     await ggLoadScript();
     const tc = window.google.accounts.oauth2.initTokenClient({ client_id: ggClientId(), scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.metadata.readonly', hint: DB.me?.email || '',
-      callback: async (r) => { if (r.error) { GG.err = r.error; ccPaint(el); return; } GG.token = r.access_token; GG.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000 - 60e3; GG.err = ''; await ggFetch(); ccPaint(el); } });
+      callback: async (r) => { if (r.error) { GG.err = r.error; toast('Google: ' + r.error, true); return; } GG.token = r.access_token; GG.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000 - 60e3; GG.err = ''; await ggFetch(); ccPaint(el); toast('Google connected'); } });
     tc.requestAccessToken({ prompt: '' });
   } catch (e) { toast(e.message, true); }
 }
@@ -191,155 +109,285 @@ function ccVoice() {
   return fem.find((x) => /en-IN/i.test(x.lang)) || fem.find((x) => /natural|neural|online/i.test(x.name)) || fem[0] || vs.find((x) => /en-IN/i.test(x.lang) && !CC_MALE.test(x.name)) || vs.find((x) => !CC_MALE.test(x.name)) || vs[0] || null;
 }
 if ('speechSynthesis' in window) { try { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices(); } catch (_) { /* */ } }
+/* ---------- speaking: sentence by sentence (long speech gets cut off in Chrome), with captions; phones need a first tap to unlock sound ---------- */
+function ccUnlock() {
+  if (CC.unlocked || !('speechSynthesis' in window)) return;
+  try { const u = new window.SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); window.speechSynthesis.resume(); CC.unlocked = true; } catch (_) { /* */ }
+}
+function ccSentences(t) { return String(t || '').replace(/\s+/g, ' ').match(/[^.!?]+[.!?]*/g)?.map((x) => x.trim()).filter(Boolean) || []; }
 function ccSay(text) {
-  if (!CC.speak || !text || !('speechSynthesis' in window)) return;
+  const parts = ccSentences(text); CC.capParts = parts; CC.capAt = -1; ccCaption();
+  if (!CC.speak || !parts.length || !('speechSynthesis' in window)) return;
   try {
-    window.speechSynthesis.cancel();
-    const u = new window.SpeechSynthesisUtterance(String(text).replace(/₹/g, 'rupees ').replace(/\bP1\b/g, 'P 1').replace(/\bP2\b/g, 'P 2'));
-    const v0 = ccVoice(); if (v0) { u.voice = v0; u.lang = v0.lang; } else u.lang = 'en-IN';
-    u.rate = 1.0; u.pitch = 1.12;
-    u.onstart = () => { CC.speaking = true; ccVoiceUI(); }; u.onend = u.onerror = () => { CC.speaking = false; ccVoiceUI(); };
-    CC.speaking = true; ccVoiceUI();
-    window.speechSynthesis.speak(u);
-  } catch (_) { /* no voice */ }
+    const ss = window.speechSynthesis; ss.cancel(); ss.resume();
+    const v0 = ccVoice(); CC.speaking = true; ccVoiceUI();
+    parts.forEach((p, i) => {
+      const u = new window.SpeechSynthesisUtterance(p.replace(/₹\s?/g, 'rupees ').replace(/\bP([1-5])\b/g, 'P $1').replace(/\bCoE\b/g, 'C O E').replace(/\bRPTO\b/g, 'R P T O'));
+      if (v0) { u.voice = v0; u.lang = v0.lang; } else u.lang = 'en-IN';
+      u.rate = 1.0; u.pitch = 1.1;
+      u.onstart = () => { CC.capAt = i; ccCaption(); };
+      if (i === parts.length - 1) u.onend = u.onerror = () => { CC.speaking = false; CC.capAt = parts.length; ccVoiceUI(); ccCaption(); };
+      ss.speak(u);
+    });
+  } catch (_) { CC.speaking = false; ccVoiceUI(); }
 }
 function ccHush() { try { window.speechSynthesis?.cancel(); } catch (_) { /* */ } CC.speaking = false; ccVoiceUI(); }
-function ccVoiceUI() { document.querySelectorAll('.cc-hush').forEach((b) => { b.hidden = !CC.speaking; }); document.querySelector('.cc-hud')?.classList.toggle('speaking', !!CC.speaking); }
-/* leaving the screen stops the voice */
-window.addEventListener('hashchange', () => { if (CC.speaking) ccHush(); if (CC.listening) CC.rec?.abort?.(); });
+function ccVoiceUI() { document.querySelectorAll('.gc-hush').forEach((b) => { b.hidden = !CC.speaking; }); document.querySelector('.gc')?.classList.toggle('speaking', !!CC.speaking); }
+function ccCaption() {
+  const box = document.querySelector('.gc-cap'); if (!box) return;
+  const p = CC.capParts || []; box.hidden = !p.length;
+  box.innerHTML = p.map((x, i) => `<span class="${i < CC.capAt ? 'said' : i === CC.capAt ? 'now' : ''}">${esc(x)}</span>`).join(' ');
+}
+window.addEventListener('hashchange', () => { if (!/^#connect/.test(location.hash)) { ccHush(); CC.rec?.abort?.(); document.body.classList.remove('gc-on'); } });
 
+/* ---------- listening: tap Talk to Garuda, speak, and a 2-second pause sends it ---------- */
 function ccListen(el, on) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return toast('Voice needs Chrome, Edge or Safari. Type the question instead.', true);
-  if (on === false || (on === undefined && CC.listening)) { CC.stopAsked = true; CC.rec?.stop(); return; }
+  ccUnlock();
+  if (!SR) return toast('This browser cannot listen. Use Chrome (Android, Windows, Mac) or Safari on iPhone with Siri switched on, or type the question.', true);
+  if (on === false) { CC.rec?.stop(); return; }
   if (CC.listening) return;
   ccHush();
   const r = new SR(); CC.rec = r; r.lang = 'en-IN'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
-  CC.listening = true; CC.stopAsked = false; ccPaint(el);
-  let finalText = '';
-  r.onresult = (e) => { let s = ''; finalText = ''; for (const res of e.results) { s += res[0].transcript; if (res.isFinal) finalText += res[0].transcript; } const i = el.querySelector('#ccq'); if (i) i.value = s; };
-  r.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast(e.error === 'not-allowed' ? 'Allow the microphone for this site (the lock icon in the address bar) to talk to the CRM.' : 'Could not hear that: ' + e.error, true); };
-  r.onend = () => { CC.listening = false; CC.rec = null; const q = (el.querySelector('#ccq')?.value || finalText).trim(); ccPaint(el); if (q) ccAsk(q, el); };
+  CC.listening = true; CC.heard = ''; ccPaint(el);
+  let pause = null; const quiet = setTimeout(() => { if (!CC.heard) r.stop(); }, 9000);
+  const arm = () => { clearTimeout(pause); pause = setTimeout(() => r.stop(), 2000); };
+  r.onresult = (e) => { let s0 = ''; for (const res of e.results) s0 += res[0].transcript; CC.heard = s0.trim(); const h = el.querySelector('.gc-heard'); if (h) h.textContent = CC.heard || 'Listening…'; arm(); };
+  r.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Allow the microphone for this site (tap the lock or “aA” in the address bar → Microphone → Allow).' : 'Could not hear that: ' + e.error, true); };
+  r.onend = () => { clearTimeout(pause); clearTimeout(quiet); CC.listening = false; CC.rec = null; const q = CC.heard; ccPaint(el); if (q) ccAsk(q, el); };
   try { r.start(); } catch (_) { CC.listening = false; ccPaint(el); }
+}
+
+/* ---------- understanding the question: when, and about what ---------- */
+function ccRange(s) {
+  const d0 = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const now = new Date(); const today = d0(now); const day = 864e5;
+  const mk = (from, to, label) => ({ from, to, label, ds: localDate(from), de: localDate(new Date(to - 1)) });
+  if (/yesterday/.test(s)) return mk(new Date(today - day), today, 'yesterday');
+  if (/last week|previous week/.test(s)) { const mon = new Date(today - ((today.getDay() + 6) % 7) * day); return mk(new Date(mon - 7 * day), mon, 'last week'); }
+  if (/this week|week/.test(s)) { const mon = new Date(today - ((today.getDay() + 6) % 7) * day); return mk(mon, new Date(+today + day), 'this week'); }
+  if (/last month|previous month/.test(s)) { const a = new Date(today.getFullYear(), today.getMonth() - 1, 1); return mk(a, new Date(today.getFullYear(), today.getMonth(), 1), 'last month'); }
+  if (/this month|month/.test(s)) return mk(new Date(today.getFullYear(), today.getMonth(), 1), new Date(+today + day), 'this month');
+  if (/this year|financial year|\bfy\b|year/.test(s)) { const fy = TG.per('fy'); return mk(new Date(fy.start), new Date(+today + day), TG.label(TG.fy())); }
+  const m = s.match(/last (\d+) days?/); if (m) return mk(new Date(today - (Number(m[1]) - 1) * day), new Date(+today + day), `the last ${m[1]} days`);
+  return mk(today, new Date(+today + day), 'today');
+}
+function ccTopic(s) {
+  if (/\b(e-?mails?|mail|inbox|gmail)\b/.test(s)) return 'mail';
+  if (/\b(drive|files?|docs?|documents?|sheets?|slides)\b/.test(s)) return 'drive';
+  if (/potential|pipeline|deal|forecast|closing|proposal|quotation/.test(s)) return 'deals';
+  if (/revenue|target|collect|achiev|money|behind|pace|balance|payment|sales figure|how much/.test(s)) return 'revenue';
+  if (/\bwon\b|\bwin|sale|closed/.test(s)) return 'won';
+  if (/\blost\b|drop/.test(s)) return 'lost';
+  if (/overdue|follow/.test(s)) return 'follow';
+  if (/referr/.test(s)) return 'referrals';
+  if (/source|campaign|instagram|facebook|meta|google ads|website|justdial|indiamart/.test(s)) return 'sources';
+  if (/\blead|hot|warm|p1|p2|enquir|never/.test(s)) return 'leads';
+  if (/task/.test(s)) return 'tasks';
+  if (/team|who|people|staff|perform|best|top caller|calls?\b/.test(s)) return 'team';
+  return 'day';
+}
+const inR = (d, R) => d && localDate(d) >= R.ds && localDate(d) <= R.de;
+async function ccSheetCalls(R) {
+  if (DB.mode !== 'live' || !DB.sb) return [];
+  try { const { data } = await DB.sb.from('remarks').select('lead_id,author,created_at,outcome').eq('channel', 'Sales sheet').neq('outcome', 'Note').gte('created_at', R.from.toISOString()).lt('created_at', R.to.toISOString()).limit(5000); return data || []; } catch (_) { return []; }
+}
+const slab = (label, value, sub = '', tone = '', extra = {}) => ({ label, value, sub, tone, ...extra });
+const leadItems = (ls, deal = false) => ls.map((l) => ({ t: deal ? L.company(l) || l.name : l.name, s: deal ? `${l.stage} · ${L.ownerLabel(l)}` : `${L.company(l) || l.phone || ''} · ${L.ownerLabel(l)}`, r: deal ? inrShort(l.value) : l.next_followup_at ? fmtDate(l.next_followup_at) : (l.campaign_tier || '').slice(0, 2), lead: l.id }));
+
+/* the answer: a sentence to say, and the glass panels to show */
+async function ccAnswer(q) {
+  const s = q.toLowerCase(); const R = ccRange(s); const F = ccFacts(); const ls = F.ls; const now = new Date();
+  const person = DB.t.profiles.find((p) => p.active && p.full_name && p.full_name.split(' ')[0].length > 2 && new RegExp('\\b' + p.full_name.split(' ')[0].toLowerCase() + '\\b').test(s));
+  const topic = person ? 'person' : ccTopic(s);
+  const crmCalls = DB.t.remarks.filter((r) => r.outcome !== 'Note' && inR(r.created_at, R) && ls.some((l) => l.id === r.lead_id));
+  const newLeads = ls.filter((l) => !l.is_deal && inR(l.enquiry_date || l.created_at, R));
+  const won = ls.filter((l) => L.won(l) && inR(l.won_at, R)); const lost = ls.filter((l) => L.lost(l) && inR(l.stage_changed_at || l.updated_at, R));
+  const newDeals = ls.filter((l) => l.is_deal && inR(l.deal_at, R));
+  const pays = DB.t.payments.filter((p) => inR(p.verified_at || p.claimed_at, R));
+  const when = R.label;
+  if (topic === 'mail' || topic === 'drive') {
+    if (ggOn() && !GG.mail) await ggFetch();
+    const c = ccGoogleCard(topic);
+    return { title: c.title, icon: c.icon, say: c.say, needsGoogle: c.needsGoogle, slabs: c.needsGoogle ? [] : [slab(c.kpis[0]?.l || '', c.kpis[0]?.v || '', '', '', {}), ...(c.kpis[1] ? [slab(c.kpis[1].l, c.kpis[1].v, '', c.kpis[1].tone)] : []), slab(topic === 'mail' ? 'Inbox · last 24 h' : 'Files changed', '', '', '', { wide: true, list: (c.list || []).map((x) => ({ t: x.t, s: x.s, r: x.m, href: x.href, hot: x.hot })) })] };
+  }
+  if (topic === 'deals') {
+    const d = [...F.deals].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+    const byStage = Object.entries(groupBy(d, (l) => l.stage)).map(([k, a]) => ({ t: k, s: `${a.length} deal${a.length === 1 ? '' : 's'}`, r: inrShort(sum(a, (l) => l.value)) })).sort((a, b) => b.s.localeCompare(a.s));
+    const soon = [...F.closing].sort((a, b) => String(a.expected_close).localeCompare(String(b.expected_close)));
+    return { title: 'Deal potential', icon: 'deal', go: 'deals', say: `The pipeline holds ${nfmt(d.length)} open deals worth ${inrWords(sum(d, (l) => l.value))}. Weighted by stage, the realistic potential is ${inrWords(F.wtd)}. ${soon.length ? `${nfmt(soon.length)} are due to close in the next two weeks, starting with ${L.company(soon[0]) || soon[0].name}.` : 'None has a closing date in the next two weeks.'}${d[0] ? ` The biggest is ${L.company(d[0]) || d[0].name} at ${inrWords(d[0].value)}.` : ''}`,
+      slabs: [slab('Pipeline', inrShort(sum(d, (l) => l.value)), `${nfmt(d.length)} open deals`), slab('Weighted potential', inrShort(F.wtd), 'value × stage win %', 'info'), slab('Top deals', '', '', '', { wide: true, list: leadItems(d.slice(0, 10), true) }), slab('Closing in 14 days', nfmt(soon.length), soon[0] ? `next: ${fmtDate(soon[0].expected_close)}` : 'no dates set', soon.length ? 'warn' : ''), slab('By stage', '', '', '', { list: byStage.slice(0, 8) })] };
+  }
+  if (topic === 'revenue') {
+    const X = F.X;
+    return { title: 'Revenue against target', icon: 'rev', go: 'revenue', say: X.t ? `For ${TG.label(TG.fy())}, ${inrWords(X.a)} is achieved against a target of ${inrWords(X.t)}, which is ${X.p} percent. ${inrWords(X.c)} has been collected and ${inrWords(X.d)} is still due. ${X.lag > 0 ? `That is ${inrWords(X.lag)} behind an even pace.` : 'That is ahead of an even pace.'}${pays.length ? ` ${nfmt(pays.length)} payments came in ${when}.` : ''}` : `${inrWords(X.a)} is booked this year. No target is set.`,
+      slabs: [slab('Target', X.t ? inrShort(X.t) : '—', TG.label(TG.fy())), slab('Achieved', inrShort(X.a), X.t ? `${X.p}% of target` : '', X.p == null ? '' : toneFor(X.p), { meter: X.t ? X.p : null }), slab('Collected', inrShort(X.c), 'money in the bank', 'good'), slab('Balance due', inrShort(X.d), 'still to collect', X.d ? 'warn' : ''), slab(X.lag > 0 ? 'Behind pace' : 'Ahead of pace', inrShort(Math.abs(X.lag || 0)), 'against an even pace', X.lag > 0 ? 'bad' : 'good')] };
+  }
+  if (topic === 'won' || topic === 'lost') {
+    const a = topic === 'won' ? won : lost; const v = sum(a, (l) => l.value);
+    return { title: topic === 'won' ? `Won ${when}` : `Lost ${when}`, icon: topic === 'won' ? 'check' : 'x', go: 'deals', say: a.length ? `${nfmt(a.length)} ${topic === 'won' ? 'sales were won' : 'leads and deals were lost'} ${when}${v ? `, worth ${inrWords(v)}` : ''}. ${a.slice(0, 3).map((l) => L.company(l) || l.name).join(', ')}.` : `Nothing was ${topic} ${when}.`,
+      slabs: [slab(topic === 'won' ? 'Won' : 'Lost', nfmt(a.length), when, topic === 'won' ? 'good' : 'bad'), slab('Value', inrShort(v), ''), slab(topic === 'won' ? 'The sales' : 'Lost', '', '', '', { wide: true, list: leadItems(a.slice(0, 12), true) }), ...(topic === 'lost' ? [slab('Reasons', '', '', '', { list: Object.entries(groupBy(a, (l) => l.lost_reason || 'No reason given')).map(([k, x]) => ({ t: k, r: nfmt(x.length) })).slice(0, 6) })] : [])] };
+  }
+  if (topic === 'follow') {
+    const done = crmCalls.filter((r) => { const l = DB.get('leads', r.lead_id); return l && /follow/i.test(l.stage || ''); });
+    return { title: 'Follow-ups', icon: 'clock', go: 'followups', say: F.over.length ? `${nfmt(F.over.length)} follow-ups are overdue and ${nfmt(F.dueToday.length)} are due today. The oldest is ${F.over.sort((a, b) => String(a.next_followup_at).localeCompare(String(b.next_followup_at)))[0].name}. Clear the overdue ones first.` : `No follow-up is overdue. ${nfmt(F.dueToday.length)} are due today.`,
+      slabs: [slab('Overdue', nfmt(F.over.length), 'past their date', F.over.length ? 'bad' : 'good'), slab('Due today', nfmt(F.dueToday.length), '', F.dueToday.length ? 'warn' : ''), slab('Overdue first', '', '', '', { wide: true, list: leadItems(F.over.slice(0, 12)) }), slab('In follow-up', nfmt(F.fu.length), `${nfmt(done.length)} worked ${when}`)] };
+  }
+  if (topic === 'referrals') {
+    const refs = ls.filter((l) => l.referred_by || /referr?al/i.test(l.source || ''));
+    const inr = refs.filter((l) => inR(l.created_at, R));
+    return { title: 'Referrals', icon: 'team', go: 'leads', say: `${nfmt(refs.length)} referral leads in all, ${nfmt(inr.length)} ${when}. ${nfmt(refs.filter((l) => l.is_deal || L.won(l)).length)} became deals or sales.`, slabs: [slab('Referrals', nfmt(refs.length), 'all time'), slab(when, nfmt(inr.length), 'new referrals'), slab('Latest referrals', '', '', '', { wide: true, list: leadItems(refs.slice(-10).reverse()) })] };
+  }
+  if (topic === 'sources') {
+    const pool = /all|total|ever/.test(s) ? ls : newLeads.length ? newLeads : ls.filter((l) => inR(l.enquiry_date || l.created_at, ccRange('this month')));
+    const by = Object.entries(groupBy(pool, (l) => l.source || 'Unknown')).sort((a, b) => b[1].length - a[1].length);
+    return { title: 'Where leads come from', icon: 'leads', go: 'leads', say: by.length ? `Of ${nfmt(pool.length)} leads, ${by.slice(0, 3).map(([k, a]) => `${nfmt(a.length)} came from ${k}`).join(', ')}.` : 'No leads in that period.',
+      slabs: [slab('Leads', nfmt(pool.length), newLeads.length ? when : 'this month'), slab('Top source', by[0]?.[0] || '—', by[0] ? `${nfmt(by[0][1].length)} leads` : ''), slab('By source', '', '', '', { wide: true, list: by.slice(0, 10).map(([k, a]) => ({ t: k, s: `${nfmt(a.filter((l) => l.is_deal || L.won(l)).length)} became deals`, r: nfmt(a.length) })) })] };
+  }
+  if (topic === 'leads') {
+    return { title: `Leads ${when}`, icon: 'leads', go: 'leads', say: `${nfmt(newLeads.length)} new leads came in ${when}. ${nfmt(F.hot.length)} hot P1 and ${nfmt(F.warm.length)} warm P2 leads are open, and ${nfmt(F.never.length)} have never been called.${F.hot[0] ? ` Call ${F.hot[0].name} first.` : ''}`,
+      slabs: [slab('New', nfmt(newLeads.length), when, newLeads.length ? 'good' : ''), slab('Hot P1', nfmt(F.hot.length), 'call now', F.hot.length ? 'bad' : ''), slab(newLeads.length ? 'New leads' : 'Hot and warm', '', '', '', { wide: true, list: leadItems((newLeads.length ? newLeads : [...F.hot, ...F.warm]).slice(0, 12)) }), slab('Warm P2', nfmt(F.warm.length), ''), slab('Never called', nfmt(F.never.length), 'no call yet', F.never.length ? 'warn' : '')] };
+  }
+  if (topic === 'tasks') {
+    return { title: 'Tasks', icon: 'task', go: 'tasks', say: `${nfmt(F.tasksDone.length)} task steps were done today and ${nfmt(F.tasksLate.length)} tasks are overdue.`, slabs: [slab('Done today', nfmt(F.tasksDone.length), 'task steps', 'good'), slab('Overdue', nfmt(F.tasksLate.length), '', F.tasksLate.length ? 'bad' : 'good'), slab('Overdue tasks', '', '', '', { wide: true, list: F.tasksLate.slice(0, 12).map((t) => ({ t: t.title, s: DB.pname(t.owner), r: fmtDate(t.due_date) })) })] };
+  }
+  const sheet = R.label === 'today' ? [] : await ccSheetCalls(R);
+  const calls = [...crmCalls, ...sheet];
+  const byWho = Object.entries(groupBy(calls, (r) => DB.pname(r.author))).sort((a, b) => b[1].length - a[1].length);
+  if (topic === 'person') {
+    const p = person; const mine = F.open.filter((l) => l.owner === p.id); const od = mine.filter((l) => l.next_followup_at && new Date(l.next_followup_at) < now);
+    const pc = calls.filter((r) => r.author === p.id); const pw = won.filter((l) => l.owner === p.id || l.closed_by === p.id); const x = tva({ dept: ST.dept, pid: p.id }, TG.per('fy'));
+    return { title: p.full_name, icon: 'me', go: 'team', say: `${p.full_name.split(' ')[0]} logged ${nfmt(pc.length)} calls or remarks ${when}${pw.length ? ` and won ${nfmt(pw.length)}` : ''}. ${nfmt(mine.length)} leads and deals are open with ${nfmt(od.length)} follow-ups overdue.${x.t ? ` ${x.p} percent of the yearly target is achieved.` : ''}`,
+      slabs: [slab('Calls ' + when, nfmt(pc.length), ''), slab('Open', nfmt(mine.length), 'leads and deals'), slab(od.length ? 'Overdue follow-ups' : 'Open deals', '', '', '', { wide: true, list: leadItems((od.length ? od : mine.filter((l) => l.is_deal)).slice(0, 12), !od.length) }), slab('Overdue', nfmt(od.length), '', od.length ? 'bad' : 'good'), ...(x.t ? [slab('Target', `${x.p}%`, inrShort(x.a) + ' of ' + inrShort(x.t), toneFor(x.p), { meter: x.p })] : [])] };
+  }
+  if (topic === 'team') {
+    return { title: `Team ${when}`, icon: 'team', go: 'team', say: byWho.length ? `${nfmt(calls.length)} calls and remarks ${when}. ${byWho.slice(0, 4).map(([n, a]) => `${n.split(' ')[0]} ${a.length}`).join(', ')}.${won.length ? ` ${nfmt(won.length)} sales won.` : ''}` : `No calls were logged ${when}.`,
+      slabs: [slab('Calls and remarks', nfmt(calls.length), when), slab('People active', nfmt(byWho.length), ''), slab('Who did what', '', '', '', { wide: true, list: byWho.slice(0, 12).map(([n, a]) => ({ t: n, s: `${a.filter((r) => r.outcome === 'No answer').length} not answered`, r: nfmt(a.length) })) }), slab('Won', nfmt(won.length), inrShort(sum(won, (l) => l.value)), won.length ? 'good' : '')] };
+  }
+  /* what happened (today, yesterday, this week …) */
+  const happened = [
+    calls.length ? `${nfmt(calls.length)} calls and remarks were logged${byWho[0] ? `, most by ${byWho[0][0].split(' ')[0]} with ${byWho[0][1].length}` : ''}` : 'no calls were logged',
+    `${nfmt(newLeads.length)} new lead${newLeads.length === 1 ? '' : 's'} came in`,
+    newDeals.length ? `${nfmt(newDeals.length)} became deals` : '',
+    won.length ? `${nfmt(won.length)} sale${won.length === 1 ? ' was' : 's were'} won worth ${inrWords(sum(won, (l) => l.value))}` : '',
+    pays.length ? `${nfmt(pays.length)} payments came in` : '',
+  ].filter(Boolean);
+  return { title: `What happened ${when}`, icon: 'spark', say: `${when[0].toUpperCase() + when.slice(1)}, ${happened.join(', ')}. ${R.label === 'today' ? (F.over.length ? `${nfmt(F.over.length)} follow-ups are overdue.` : 'No follow-up is overdue.') : ''}`,
+    slabs: [slab('Calls', nfmt(calls.length), byWho[0] ? `top: ${byWho[0][0].split(' ')[0]}` : when), slab('New leads', nfmt(newLeads.length), when, newLeads.length ? 'good' : ''), slab('Activity', '', '', '', { wide: true, list: [...won.map((l) => ({ t: '🏆 Won: ' + (L.company(l) || l.name), s: L.ownerLabel(l), r: inrShort(l.value), lead: l.id })), ...newDeals.map((l) => ({ t: 'New deal: ' + (L.company(l) || l.name), s: L.ownerLabel(l), r: inrShort(l.value), lead: l.id })), ...newLeads.slice(0, 8).map((l) => ({ t: 'New lead: ' + l.name, s: l.source || '', r: '', lead: l.id })), ...byWho.slice(0, 6).map(([n, a]) => ({ t: n, s: 'calls and remarks', r: nfmt(a.length) }))].slice(0, 14) }), slab('Won', nfmt(won.length), inrShort(sum(won, (l) => l.value)), won.length ? 'good' : ''), slab(R.label === 'today' ? 'Overdue now' : 'Lost', nfmt(R.label === 'today' ? F.over.length : lost.length), '', (R.label === 'today' ? F.over.length : lost.length) ? 'bad' : 'good')] };
 }
 
 /* ---------- asking ---------- */
 async function ccAsk(q, el) {
   q = (q || '').trim(); if (!q) return;
-  const F = ccFacts(); const it = ccIntent(q, F);
-  if ((it === 'mail' || it === 'drive') && ggOn() && !GG.mail) await ggFetch();
-  const card = it.person ? ccCard('person', F, it.person) : ccCard(it, F);
-  CC.busy = true; CC.card = { ...card, q, text: '', src: '' }; ccPaint(el);
+  CC.q = q; CC.busy = true; CC.ans = null; ccPaint(el);
+  const A = await ccAnswer(q);
   let text = '', src = 'From the CRM';
   if (DB.settings.ai?.enabled !== false && DB.mode === 'live') {
     try {
-      const r = await DB.fn('ai', { action: 'ask', question: `${q}\n\nAnswer in 2 to 4 short spoken sentences. What the CRM shows today (${fmtDate(ccDay())}):\n${ccContext(F)}\nCard on screen: ${card.title}: ${card.kpis.map((x) => x.l + ' ' + x.v).join(', ')}${ggContext()}` });
-      if (r?.answer) { text = r.answer; src = 'Claude'; }
-    } catch (_) { /* Claude is not connected yet: answer from the numbers */ }
+      const r = await DB.fn('ai', { action: 'ask', question: `${q}\n\nYou are Garuda, the CRM's voice assistant. Answer in 2 to 4 short spoken sentences, numbers in Indian style (lakh, crore). Facts the CRM computed for this question (${A.title}): ${A.say}\nPanels on screen: ${A.slabs.map((x) => `${x.label}: ${x.value || ''} ${x.sub || ''}${x.list ? ' [' + x.list.slice(0, 8).map((i) => `${i.t} ${i.r || ''}`).join('; ') + ']' : ''}`).join(' | ')}\nThe day so far: ${ccTopics(ccFacts()).map((x) => x.say).join(' ')}${ggContext()}` });
+      if (r?.answer) { text = r.answer; src = 'Claude'; CC.aiErr = ''; }
+    } catch (e) { CC.aiErr = String(e.message || e); }
   }
-  if (!text) text = card.say;
-  CC.busy = false; CC.card = { ...card, q, text, src }; ccPaint(el); ccSay(text);
+  if (!text) text = A.say;
+  CC.busy = false; CC.ans = { ...A, text, src }; ccPaint(el); ccSay(text);
 }
-function ccContext(F) {
-  return ccTopics(F).map((x) => `${x.title}: ${x.big}. ${x.say}`).join('\n') + '\nPeople today: ' + Object.entries(F.byWho).map(([n, a]) => `${n} ${a.length}`).join(', ');
-}
-function ccShowTopic(k, el, speak = true) {
-  CC.topic = k; const F = ccFacts(); const card = ccCard(CC_TOPIC_KIND[k] || 'today', F);
-  CC.card = { ...card, q: '', text: card.say, src: 'From the CRM' }; ccPaint(el); if (speak) ccSay(card.say);
-}
-
-/* ---------- pinned topics, per person per day ---------- */
-const ccPinKey = () => `garuda-cc-pins-${DB.me?.id}-${ccDay()}`;
-function ccPins() { try { return JSON.parse(localStorage.getItem(ccPinKey()) || '[]'); } catch (_) { return []; } }
-function ccSetPins(a) { try { localStorage.setItem(ccPinKey(), JSON.stringify(a)); } catch (_) { /* no storage */ } }
 
 /* ---------- the screen ---------- */
-function ccRingSVG() {
-  const ticks = Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; const r1 = 132, r2 = i % 5 ? 136 : 141; return `<line x1="${150 + r1 * Math.cos(a)}" y1="${150 + r1 * Math.sin(a)}" x2="${150 + r2 * Math.cos(a)}" y2="${150 + r2 * Math.sin(a)}"/>`; }).join('');
-  return `<svg viewBox="0 0 300 300" aria-hidden="true" class="cc-svg">
-    <defs><radialGradient id="ccg" cx="50%" cy="50%" r="50%"><stop offset="55%" stop-color="#0B63D6" stop-opacity="0"/><stop offset="80%" stop-color="#4599FE" stop-opacity=".35"/><stop offset="100%" stop-color="#4599FE" stop-opacity="0"/></radialGradient></defs>
-    <circle cx="150" cy="150" r="148" fill="url(#ccg)" class="cc-glow"/>
-    <g class="cc-ticks">${ticks}</g>
-    <circle class="cc-a1" cx="150" cy="150" r="118" fill="none" stroke-width="2.5" stroke-dasharray="120 40 30 60 200 80" />
-    <circle class="cc-a2" cx="150" cy="150" r="104" fill="none" stroke-width="7" stroke-dasharray="60 300" stroke-linecap="round"/>
-    <circle class="cc-a3" cx="150" cy="150" r="92" fill="none" stroke-width="1.5" stroke-dasharray="4 7"/>
-    <circle class="cc-core" cx="150" cy="150" r="78" fill="none" stroke-width="5"/>
-  </svg>`;
+const GC_RING = [['day', 'Today', 'spark', 'What happened today'], ['yday', 'Yesterday', 'cal', 'What happened yesterday'], ['leads', 'Leads', 'leads', 'How are the leads today'], ['follow', 'Follow-ups', 'clock', 'Which follow-ups are overdue'], ['deals', 'Deal potential', 'deal', 'What is the deal potential'], ['revenue', 'Revenue', 'rev', 'How is revenue against target'], ['team', 'Team', 'team', 'How is the team doing today'], ['mail', 'Email', 'mail', 'Any new email'], ['drive', 'Drive', 'drive', 'What changed in my Drive']];
+function gcRing() {
+  const ticks = Array.from({ length: 72 }, (_, i) => { const a = (i / 72) * Math.PI * 2; const r1 = 140, r2 = i % 6 ? 145 : 151; return `<line x1="${160 + r1 * Math.cos(a)}" y1="${160 + r1 * Math.sin(a)}" x2="${160 + r2 * Math.cos(a)}" y2="${160 + r2 * Math.sin(a)}"/>`; }).join('');
+  return `<svg viewBox="0 0 320 320" aria-hidden="true" class="gc-svg"><defs><radialGradient id="gcg" cx="50%" cy="50%" r="50%"><stop offset="50%" stop-color="#4599FE" stop-opacity="0"/><stop offset="78%" stop-color="#4599FE" stop-opacity=".28"/><stop offset="100%" stop-color="#4599FE" stop-opacity="0"/></radialGradient></defs>
+    <circle cx="160" cy="160" r="158" fill="url(#gcg)"/><g class="gc-ticks">${ticks}</g>
+    <circle class="gc-a1" cx="160" cy="160" r="128" fill="none" stroke-width="2.5" stroke-dasharray="140 40 30 60 220 80"/>
+    <circle class="gc-a2" cx="160" cy="160" r="113" fill="none" stroke-width="8" stroke-dasharray="70 330" stroke-linecap="round"/>
+    <circle class="gc-a3" cx="160" cy="160" r="100" fill="none" stroke-width="1.5" stroke-dasharray="4 7"/>
+    <circle class="gc-core" cx="160" cy="160" r="86" fill="none" stroke-width="5"/></svg>`;
 }
-function ccCardHTML(c) {
-  const rows = (c.rows || []).slice(0, 12);
-  return `<article class="cc-acard" data-kind="${esc(c.kind)}">
-    <header><span class="cc-aic">${svg(c.icon)}</span><div class="grow"><h3>${esc(c.title)}</h3>${c.q ? `<span class="cc-q">“${esc(c.q)}”</span>` : ''}</div>
-      <button type="button" class="cc-mini" id="ccsayc" title="Read it out">${svg('sound')}</button><button type="button" class="cc-mini" id="ccx" title="Close">${svg('x')}</button></header>
-    ${CC.busy ? '<div class="cc-think"><i></i><i></i><i></i> <span>Thinking…</span></div>' : c.text ? `<p class="cc-text">${esc(c.text)}</p><span class="cc-src">${esc(c.src || '')}</span>` : ''}
-    ${c.needsGoogle ? `<div class="cc-gnote">${svg('google')} <span class="grow">Connect your Google account to see your email and Drive here. It stays in this browser; nothing is stored in the CRM.</span><button type="button" class="btn small primary" data-ggc>Connect Google</button></div>` : ''}
-    ${c.kpis?.length ? `<div class="cc-kpis">${c.kpis.map((x) => `<div class="cc-k ${x.tone ? 't-' + x.tone : ''}"><b>${x.v}</b><span>${esc(x.l)}</span></div>`).join('')}</div>` : ''}
-    ${c.meter != null ? `<div class="cc-meter"><i class="t-${toneFor(c.meter)}" style="width:${clamp(c.meter, 0, 100)}%"></i><span>${c.meter}% of target</span></div>` : ''}
-    ${rows.length ? `<ul class="cc-rows">${rows.map((l) => `<li><button type="button" data-lead="${l.id}"><span class="grow"><b>${esc(c.cols === 'deal' ? L.company(l) || l.name : l.name)}</b><span>${esc(c.cols === 'deal' ? `${l.stage} · ${L.ownerLabel(l)}` : `${L.company(l) || l.phone || ''} · ${L.ownerLabel(l)}`)}</span></span><span class="r">${c.cols === 'deal' ? `<b>${inrShort(l.value)}</b><span>${l.expected_close ? fmtDate(l.expected_close) : 'no date'}</span>` : l.next_followup_at ? `<span class="${new Date(l.next_followup_at) < new Date() ? 'bad' : ''}">${fmtDT(l.next_followup_at)}</span>` : stageChip(l)}</span></button></li>`).join('')}</ul>${(c.rows || []).length > 12 ? `<button type="button" class="lnk cc-more" data-ccgo="${esc(c.go || '')}">See all ${nfmt(c.rows.length)} →</button>` : ''}` : ''}
-    ${c.list?.length ? `<ul class="cc-rows">${c.list.slice(0, 15).map((x) => `<li>${x.href ? `<a href="${esc(x.href)}" target="_blank" rel="noopener" class="${x.hot ? 'hot' : ''}">` : '<div>'}<span class="grow"><b>${esc(x.t)}</b><span>${esc(x.s || '')}</span></span><span class="r"><span>${esc(x.m || '')}</span></span>${x.href ? '</a>' : '</div>'}</li>`).join('')}</ul>` : ''}
-    ${c.go && !rows.length ? `<button type="button" class="lnk cc-more" data-ccgo="${esc(c.go)}">Open ${esc(c.title)} →</button>` : ''}
-  </article>`;
+function gcSlab(x, i, n) {
+  const mid = (n - 1) / 2; const off = i - mid;
+  return `<section class="gc-slab ${x.wide ? 'wide' : ''} ${x.tone ? 't-' + x.tone : ''}" style="--o:${off};--d:${i * 70}ms">
+    <h4>${esc(x.label)}</h4>
+    <div class="gc-glass">${x.value !== '' && x.value != null ? `<b class="gc-v">${esc(String(x.value))}</b>` : ''}${x.sub ? `<span class="gc-s">${esc(x.sub)}</span>` : ''}
+      ${x.meter != null ? `<div class="gc-meter"><i style="width:${clamp(x.meter, 0, 100)}%"></i></div>` : ''}
+      ${x.list ? (x.list.length ? `<ul class="gc-list">${x.list.map((r) => `<li>${r.lead ? `<button type="button" data-lead="${r.lead}">` : r.href ? `<a href="${esc(r.href)}" target="_blank" rel="noopener" class="${r.hot ? 'hot' : ''}">` : '<div>'}<span class="grow"><b>${esc(r.t || '')}</b>${r.s ? `<span>${esc(r.s)}</span>` : ''}</span>${r.r ? `<em>${esc(String(r.r))}</em>` : ''}${r.lead ? '</button>' : r.href ? '</a>' : '</div>'}</li>`).join('')}</ul>` : '<p class="gc-none">Nothing here.</p>') : ''}
+    </div></section>`;
 }
 function ccPaint(el) {
-  const box = el.querySelector('#ccbox'); if (!box) return;
-  const F = ccFacts(); const tp = ccTopics(F); const pins = ccPins();
-  if (!CC.card) { const c0 = ccCard(CC_TOPIC_KIND[CC.topic] || 'today', F); CC.card = { ...c0, q: '', text: c0.say, src: 'From the CRM' }; }
-  const card = (x, pinned) => `<div class="cc-card tone-${x.tone}" draggable="true" data-cct="${x.id}"><span class="cc-ic">${svg(x.icon)}</span><div class="grow"><span class="cc-t">${esc(x.title)}</span><b>${esc(x.big)}</b><span class="cc-s">${esc(x.say)}</span></div>
-    <div class="cc-act"><button type="button" class="cc-mini" data-ccsay="${x.id}" title="Read it out">${svg('sound')}</button>${x.rows || x.go ? `<button type="button" class="cc-mini" data-ccopen="${x.id}" title="Open the list">${svg('list')}</button>` : ''}<button type="button" class="cc-mini" data-ccpin="${x.id}" title="${pinned ? 'Unpin' : 'Pin'}">${svg(pinned ? 'x' : 'flag')}</button></div></div>`;
-  const ring = [...CC_RING, ['mail', 'Email', 'mail'], ['drive', 'Drive', 'drive']];
-  box.innerHTML = `<div class="cc-stage">
-      <div class="cc-hud ${CC.open ? 'open' : ''} ${CC.listening ? 'listening' : ''} ${CC.busy ? 'busy' : ''} ${CC.speaking ? 'speaking' : ''}">
-        <div class="cc-ring">${ccRingSVG()}
-          <button type="button" class="cc-btn" id="ccring" aria-label="${CC.open ? 'Close the topics' : 'Open the topics'}"><span class="cc-name">${CC.listening ? 'LISTENING' : CC.busy ? 'THINKING' : CC.speaking ? 'SPEAKING' : 'GARUDA'}</span><span class="cc-sub">${CC.listening ? 'press Stop when done' : CC.open ? 'pick a topic' : 'tap for topics'}</span></button>
-          ${ring.map(([k, t, ic], i) => `<button type="button" class="cc-seg ${CC.topic === k ? 'on' : ''}" data-ccr="${k}" style="--a:${i * (360 / ring.length) - 90}deg">${svg(ic)}<span>${t}</span></button>`).join('')}
-        </div>
-        <div class="cc-talk">
-          ${CC.listening ? `<button type="button" class="cc-tbtn stop" id="ccstop">${svg('stop')} Stop</button>` : `<button type="button" class="cc-tbtn go" id="ccstart">${svg('mic')} Start talking</button>`}
-          <button type="button" class="cc-tbtn hush cc-hush" id="cchush" ${CC.speaking ? '' : 'hidden'}>${svg('mute')} Stop voice</button>
-        </div>
-        <form class="cc-ask" id="ccform"><input id="ccq" placeholder="Ask: “Show my deals”, “What happened today?”, “Any new email?”" autocomplete="off"><button class="btn primary small" type="submit">Ask</button></form>
-        <div class="cc-opts"><label class="cc-voice"><input type="checkbox" id="ccspk" ${CC.speak ? 'checked' : ''}> Read answers out loud</label>
-          ${ggOn() ? `<span class="cc-gon">${svg('google')} Google connected · <button type="button" class="lnk" id="ggref">refresh</button></span>` : `<button type="button" class="lnk" data-ggc>${svg('google')} Connect Gmail and Drive</button>`}</div>
-        ${isHead() && !ggClientId() ? `<details class="cc-gset"><summary>Set up Gmail and Drive for everyone</summary><p>In Google Cloud Console: create an OAuth client of type <b>Web application</b>, add <code>${esc(location.origin)}</code> as an authorised JavaScript origin, and enable the Gmail API and the Google Drive API. Set the consent screen to <b>Internal</b> so only your company’s accounts can use it. Paste the client ID here (it is not a secret).</p><div class="row"><input id="ggcid" placeholder="1234-abc.apps.googleusercontent.com"><button type="button" class="btn small primary" id="ggsave">Save</button></div></details>` : ''}
-        ${GG.err ? `<span class="faint bad" style="font-size:12px">${esc(GG.err)}</span>` : ''}
+  const box = el.querySelector('#gcbox'); if (!box) return;
+  const F = ccFacts(); const A = CC.ans;
+  const brief = `${nfmt(F.rem.length)} calls · ${nfmt(F.fresh.length)} new · ${nfmt(F.over.length)} overdue`;
+  const state = CC.listening ? 'listening' : CC.busy ? 'thinking' : A ? 'answer' : 'idle';
+  box.className = `gc ${state} ${CC.speaking ? 'speaking' : ''}`;
+  box.innerHTML = `
+    <header class="gc-top"><button type="button" class="gc-x" id="gcexit" aria-label="Leave Garuda Connect">${svg('chevl')} <span>Exit</span></button>
+      <div class="gc-brand"><i></i> GARUDA CONNECT <span>· ${esc(dept(ST.dept)?.name || 'RPTO Team')}</span></div>
+      <div class="gc-tr">${ggOn() ? `<span class="gc-chip on">${svg('google')} Google on</span>` : `<button type="button" class="gc-chip" data-gghelp>${svg('google')} Connect Google</button>`}${themeSwitch('gcthm', true)}</div></header>
+    <div class="gc-center">
+      <div class="gc-ring">${gcRing()}
+        <button type="button" class="gc-core-btn" id="gctalk2" aria-label="Talk to Garuda"><span class="gc-name">${state === 'listening' ? 'LISTENING' : state === 'thinking' ? 'THINKING' : CC.speaking ? 'SPEAKING' : 'GARUDA'}</span><span class="gc-sub">${state === 'listening' ? 'pause to send' : esc(brief)}</span></button>
+        ${A || CC.busy ? '' : GC_RING.map(([k, t, ic], i) => `<button type="button" class="gc-seg" data-gq="${esc(GC_RING[i][3])}" style="--a:${i * (360 / GC_RING.length) - 90}deg">${svg(ic)}<span>${t}</span></button>`).join('')}
       </div>
-      <aside class="cc-panel">${ccCardHTML(CC.card)}</aside>
+      ${state === 'listening' ? `<p class="gc-heard">${esc(CC.heard || 'Listening… ask anything')}</p>` : ''}
+      ${CC.busy ? `<p class="gc-heard">“${esc(CC.q || '')}”</p>` : ''}
     </div>
-    <div class="cc-board">
-      <section class="cc-col" data-ccdrop="day"><div class="cc-ch"><h3>What happened today</h3><span class="faint">${fmtDate(ccDay())} · drag a card to Pinned</span></div><div class="cc-cards">${tp.filter((x) => !pins.includes(x.id)).map((x) => card(x, false)).join('')}</div></section>
-      <section class="cc-col pin" data-ccdrop="pin"><div class="cc-ch"><h3>${svg('flag')} Pinned for today</h3><span class="faint">${pins.length ? 'tap the ring to hear them' : 'drop the topics that matter here'}</span></div><div class="cc-cards">${pins.map((id) => tp.find((x) => x.id === id)).filter(Boolean).map((x) => card(x, true)).join('') || '<div class="cc-empty">Drag a topic here</div>'}</div></section>
-    </div>`;
-  ccBind(el, F, tp);
+    ${A ? `<div class="gc-deck-wrap"><div class="gc-q"><span>“${esc(CC.q || '')}”</span><button type="button" id="gcclose" aria-label="Close the answer">${svg('x')}</button></div>
+      <div class="gc-deck">${A.slabs.map((x, i) => gcSlab(x, i, A.slabs.length)).join('')}</div>
+      ${A.needsGoogle ? `<div class="gc-gneed">${svg('google')} <span>Connect your Google account to see your email and Drive.</span><button type="button" class="btn small primary" data-gghelp>How to connect</button></div>` : ''}
+      ${A.go ? `<button type="button" class="gc-open" data-ccgo="${esc(A.go)}">Open in the CRM →</button>` : ''}</div>` : ''}
+    <div class="gc-cap" ${CC.capParts?.length ? '' : 'hidden'}></div>
+    <footer class="gc-bot">
+      ${CC.listening ? `<button type="button" class="gc-talk stop" id="gcstop">${svg('stop')} Stop</button>` : `<button type="button" class="gc-talk" id="gctalk">${svg('mic')} Talk to Garuda</button>`}
+      <button type="button" class="gc-talk hush gc-hush" id="gchush" ${CC.speaking ? '' : 'hidden'}>${svg('mute')} Stop voice</button>
+      <form class="gc-type" id="gcform"><input id="gcq" placeholder="or type: what happened yesterday? what’s the deal potential?" autocomplete="off" aria-label="Ask Garuda"><button type="submit" aria-label="Ask">${svg('send')}</button></form>
+      <label class="gc-spk"><input type="checkbox" id="gcspk" ${CC.speak ? 'checked' : ''}> Voice</label>
+      ${A ? `<span class="gc-src">${esc(A.src)}${A.src !== 'Claude' && CC.aiErr ? ` · Claude not connected (${esc(CC.aiErr.includes('ANTHROPIC') ? 'Anthropic key not added in Supabase' : CC.aiErr.slice(0, 60))})` : ''}</span>` : ''}
+    </footer>`;
+  ccCaption(); ccBind(el);
 }
-function ccBind(el, F, tp) {
-  el.querySelector('#ccring').onclick = () => { CC.open = !CC.open; if (!CC.open) { const pins = ccPins(); if (pins.length) ccSay(pins.map((id) => tp.find((x) => x.id === id)?.say).filter(Boolean).join(' ')); } ccPaint(el); };
-  el.querySelectorAll('[data-ccr]').forEach((b) => (b.onclick = () => { const k = b.dataset.ccr; if ((k === 'mail' || k === 'drive') && ggOn() && !GG.mail) { ggFetch().then(() => ccShowTopic(k, el)); return; } ccShowTopic(k, el); }));
-  el.querySelector('#ccstart')?.addEventListener('click', () => ccListen(el, true));
-  el.querySelector('#ccstop')?.addEventListener('click', () => ccListen(el, false));
-  el.querySelector('#cchush').onclick = () => ccHush();
-  el.querySelector('#ccform').onsubmit = (e) => { e.preventDefault(); ccAsk(el.querySelector('#ccq').value, el); };
-  el.querySelector('#ccspk').onchange = (e) => { CC.speak = e.target.checked; try { localStorage.setItem('garuda-cc-speak', CC.speak ? '1' : '0'); } catch (_) { /* */ } if (!CC.speak) ccHush(); };
-  el.querySelector('#ccsayc')?.addEventListener('click', () => ccSay(CC.card?.text || CC.card?.say));
-  el.querySelector('#ccx')?.addEventListener('click', () => { CC.card = null; CC.topic = 'today'; ccHush(); ccPaint(el); });
-  el.querySelectorAll('[data-ggc]').forEach((b) => (b.onclick = () => ggConnect(el)));
-  el.querySelector('#ggref')?.addEventListener('click', async () => { await ggFetch(); if (CC.card?.google) ccShowTopic(CC.card.kind, el, false); else ccPaint(el); });
-  el.querySelector('#ggsave')?.addEventListener('click', () => guard(async () => { const id = (el.querySelector('#ggcid').value || '').trim(); if (!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error('That does not look like a Google OAuth client ID.'); await DB.setSetting('google', { ...(DB.settings.google || {}), client_id: id }); ccPaint(el); }, 'Saved. Everyone can now connect their own Gmail and Drive.'));
-  el.querySelectorAll('[data-ccgo]').forEach((b) => (b.onclick = () => b.dataset.ccgo && go(b.dataset.ccgo)));
-  el.querySelectorAll('.cc-acard [data-lead]').forEach((b) => (b.onclick = () => openLead(b.dataset.lead)));
-  const byId = (id) => tp.find((x) => x.id === id);
-  el.querySelectorAll('[data-ccsay]').forEach((b) => (b.onclick = () => ccSay(byId(b.dataset.ccsay)?.say)));
-  el.querySelectorAll('[data-ccopen]').forEach((b) => (b.onclick = () => { const x = byId(b.dataset.ccopen); if (x?.rows) drill(esc(x.title), leadRows(x.rows)); else if (x?.go) go(x.go); }));
-  el.querySelectorAll('[data-ccpin]').forEach((b) => (b.onclick = () => { const id = b.dataset.ccpin; const p = ccPins(); ccSetPins(p.includes(id) ? p.filter((x) => x !== id) : [...p, id]); ccPaint(el); }));
-  el.querySelectorAll('.cc-card').forEach((c) => { c.ondragstart = (e) => { e.dataTransfer.setData('text/plain', c.dataset.cct); c.classList.add('drag'); }; c.ondragend = () => c.classList.remove('drag'); });
-  el.querySelectorAll('[data-ccdrop]').forEach((z) => { z.ondragover = (e) => { e.preventDefault(); z.classList.add('over'); }; z.ondragleave = () => z.classList.remove('over');
-    z.ondrop = (e) => { e.preventDefault(); z.classList.remove('over'); const id = e.dataTransfer.getData('text/plain'); const p = ccPins().filter((x) => x !== id); ccSetPins(z.dataset.ccdrop === 'pin' ? [...p, id] : p); ccPaint(el); }; });
+function ccBind(el) {
+  const q = (id) => el.querySelector(id);
+  q('#gcexit').onclick = () => { ccHush(); document.body.classList.remove('gc-on'); history.length > 1 ? history.back() : go('command'); };
+  const talk = () => { ccUnlock(); if (CC.listening) ccListen(el, false); else ccListen(el, true); };
+  q('#gctalk')?.addEventListener('click', talk); q('#gctalk2').onclick = talk;
+  q('#gcstop')?.addEventListener('click', () => ccListen(el, false));
+  q('#gchush').onclick = () => ccHush();
+  q('#gcform').onsubmit = (e) => { e.preventDefault(); ccUnlock(); const v = q('#gcq').value; q('#gcq').value = ''; ccAsk(v, el); };
+  q('#gcspk').onchange = (e) => { CC.speak = e.target.checked; try { localStorage.setItem('garuda-cc-speak', CC.speak ? '1' : '0'); } catch (_) { /* */ } if (!CC.speak) ccHush(); else ccUnlock(); };
+  q('#gcclose')?.addEventListener('click', () => { CC.ans = null; CC.capParts = []; ccHush(); ccPaint(el); });
+  el.querySelectorAll('[data-gq]').forEach((b) => (b.onclick = () => { ccUnlock(); ccAsk(b.dataset.gq, el); }));
+  el.querySelectorAll('[data-ccgo]').forEach((b) => (b.onclick = () => { document.body.classList.remove('gc-on'); go(b.dataset.ccgo); }));
+  el.querySelectorAll('.gc-deck [data-lead]').forEach((b) => (b.onclick = () => openLead(b.dataset.lead)));
+  el.querySelectorAll('[data-gghelp]').forEach((b) => (b.onclick = () => ggHelp(el)));
+  bindTheme(el);
+}
+/* connecting Google, step by step */
+function ggHelp(el) {
+  if (ggClientId()) return ggConnect(el);
+  const admin = isHead();
+  const m = openModal({ title: `${svg('google')} Connect Gmail and Drive`, width: 640,
+    body: `<p>Garuda reads <b>your own</b> email and Drive, in your browser, after you sign in with Google. Nothing is copied into the CRM.</p>
+      <p class="faint">This needs a one-time setup by an Admin (about 10 minutes, free). After that everyone just taps <b>Connect Google</b> and picks their account.</p>
+      <ol class="gsteps">
+        <li>Open <b>console.cloud.google.com</b> signed in with your company Google account. Top bar → <b>Select a project → New project</b> → name it <i>Garuda CRM</i> → Create.</li>
+        <li>Search bar → <b>Gmail API</b> → Enable. Search again → <b>Google Drive API</b> → Enable.</li>
+        <li>Left menu → <b>Google Auth Platform</b> (or “OAuth consent screen”) → Get started. App name <i>Garuda CRM</i>, your email for support → Audience: <b>Internal</b> → Create. (Internal means only @your-company accounts can use it, and Google does not need to review it.)</li>
+        <li><b>Clients → Create client</b> → Application type <b>Web application</b> → under <b>Authorised JavaScript origins</b> add <code>${esc(location.origin)}</code> → Create.</li>
+        <li>Copy the <b>Client ID</b> (it ends in <code>.apps.googleusercontent.com</code>; it is not a secret) and paste it below.</li>
+      </ol>
+      ${admin ? '<label class="field"><span>Client ID</span><input id="ggcid" placeholder="1234567890-abc.apps.googleusercontent.com"></label>' : '<p class="bad">Ask your Admin to do this once. Then come back and tap Connect Google.</p>'}
+      <p class="faint" style="font-size:12px">If your company email is not on Google Workspace, choose Audience <b>External</b> instead and add each person’s email under <b>Test users</b>.</p>`,
+    foot: `<button class="btn" data-c>Close</button>${admin ? '<button class="btn primary" id="ggsave">Save and connect</button>' : ''}` });
+  m.el.querySelector('#ggsave')?.addEventListener('click', () => guard(async () => {
+    const id = (m.el.querySelector('#ggcid').value || '').trim();
+    if (!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error('That does not look like a Google client ID. It ends in .apps.googleusercontent.com');
+    await DB.setSetting('google', { ...(DB.settings.google || {}), client_id: id }); m.close(); ggConnect(el);
+  }, 'Saved. Everyone can now connect their own Gmail and Drive.'));
 }
 VIEWS.connect = {
-  title: 'Claude Connect', sub: 'Ask the CRM, your email and your Drive. Press Start talking, speak, then Stop. Tap the ring for topics; drag what matters into Pinned.',
+  title: 'Garuda Connect', sub: 'Talk to the CRM.',
   render(el) {
-    el.innerHTML = `${filterBar({ person: false, period: false })}<section class="cc-shell" id="ccbox"></section>
-      <p class="faint" style="font-size:12px;margin:4px 6px">${DB.settings.ai?.enabled === false ? 'Claude is switched off in Settings → Claude AI, so answers come from the CRM’s own numbers.' : 'Answers come from Claude when it is connected (an Anthropic key in Supabase), otherwise from the CRM’s own numbers.'} Voice uses your browser’s microphone and speech; your email and Drive are read in your browser with your own Google sign-in.</p>`;
-    bindFilters(el, () => { CC.card = null; this.render(el); });
+    document.body.classList.add('gc-on');
+    el.innerHTML = '<section id="gcbox" class="gc"></section>';
     ccPaint(el);
   },
 };
