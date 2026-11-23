@@ -234,7 +234,7 @@ function renderShell() {
       <nav class="nav"><span class="glider" aria-hidden="true"></span>${items.map(([g, it]) => `<div class="grp"><span class="lbl">${g}</span></div>${it.map((x) => navBtn(x)).join('')}`).join('')}</nav>
       <div class="sb-foot">
         <div class="sb-theme" data-tip="${isDark() ? 'Dark mode' : 'Light mode'}">${themeSwitch('thm', sbMini)}</div>
-        <button class="sb-user" id="sbuser" aria-haspopup="menu"><span class="av">${esc(initials(DB.me.full_name))}<i></i>${setBadge ? `<b class="avb">${setBadge}</b>` : ''}</span><span class="lbl"><b>${esc(DB.me.full_name)}</b><span class="faint">${esc(DB.me.designation || ROLES[DB.me.role] || '')}</span></span>${svg('updown')}</button>
+        <button class="sb-user" id="sbuser" aria-haspopup="menu"><span class="av">${esc(initials(DB.me.full_name))}<i></i>${setBadge ? `<b class="avb">${setBadge}</b>` : ''}</span><span class="lbl"><b>${esc(DB.me.full_name)}</b><span class="faint">${esc(DB.me.designation || roleName(DB.me) || '')}</span></span>${svg('updown')}</button>
         <div class="sb-menu glass" id="sbmenu" hidden><div class="faint" style="font-size:11.5px;padding:4px 8px">${esc(DB.me.email)}</div>${menuItems().map((x) => `<button data-v="${x[0]}" ${ST.view === x[0] ? 'aria-current="page"' : ''}>${svg(x[2])} ${x[1]}${x[0] === 'settings' && setBadge ? ` <span class="badge">${setBadge}</span>` : ''}</button>`).join('')}${menuItems().length ? '<hr>' : ''}<button id="sndtg">${svg('sound')} Sound: ${SOUND.on() ? 'on' : 'off'}</button><button id="setpw">${svg('lock')} Change password</button><button id="signout">${svg('out')} Sign out</button><button id="signoutall">${svg('lock')} Sign out everywhere</button></div>
       </div>
     </aside>

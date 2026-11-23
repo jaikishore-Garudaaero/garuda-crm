@@ -267,8 +267,8 @@ const homeView = () => (canCEO() ? 'command' : 'mydash');
 /* old screen addresses land on their new home */
 const MOVED = { me: 'mydash', targets: 'revenue', dashboard: 'team', ownership: 'team', performance: 'team', pipeline: 'leads', telecalling: 'leads', insights: 'command', webinars: 'campaigns', complaints: 'escalations', institutions: 'accounts' };
 const navLabel = (i) => (typeof i[1] === 'function' ? i[1]() : i[1]);
-function navItems() { return NAV.map(([g, items]) => [g, items.filter((i) => i[3]())]).filter(([, i]) => i.length); }
-const menuItems = () => USER_MENU.filter((i) => i[3]());
+function navItems() { return NAV.map(([g, items]) => [g, items.filter((i) => i[3]() && canView(i[0]))]).filter(([, i]) => i.length); }
+const menuItems = () => USER_MENU.filter((i) => i[3]() && canView(i[0]));
 const ESC_OPEN = ['Open', 'In progress', 'Escalated up'];
 function badgeFor(k) {
   if (k === 'escalations') return DB.t.complaints.filter((c) => ESC_OPEN.includes(c.status)).length || '';

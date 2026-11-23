@@ -2614,3 +2614,48 @@ body.gc-on .tabbar,body.gc-on .mtop{visibility:hidden}
 .gc-list li>button.hot{border-left:3px solid var(--glow)}
 .gc-vsel{max-width:180px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass2);color:var(--ink);font-size:12.5px}
 .gc-vsel option{color:#0b1f3d}
+
+/* ===================== v6.1 · org chart, access control ===================== */
+.orgbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.orgwrap{overflow:auto;padding:10px 4px 24px;max-height:72vh;border-radius:16px;background:radial-gradient(circle at 50% 0,color-mix(in srgb,var(--accent) 8%,transparent),transparent 60%)}
+.otree{display:inline-block;min-width:100%;text-align:center}
+.otree ul{position:relative;display:flex;justify-content:center;gap:0;margin:0;padding:26px 0 0;list-style:none}
+.otree>ul{padding-top:0}
+.otree li{position:relative;padding:26px 10px 0;display:flex;flex-direction:column;align-items:center}
+.otree>ul>li{padding-top:0}
+/* connectors: a line up from each card, joined by a bar across siblings, and a line down from the parent */
+.otree li::before,.otree li::after{content:"";position:absolute;top:0;width:50%;height:26px;border-top:2px solid var(--oline,#9fb8de)}
+.otree li::before{right:50%}.otree li::after{left:50%;border-left:2px solid var(--oline,#9fb8de)}
+.otree li:only-child::before,.otree li:only-child::after{border-top:0}
+.otree li:only-child::after{left:50%}
+.otree li:first-child::before,.otree li:last-child::after{border-top:0}
+.otree li:last-child::before{border-right:2px solid var(--oline,#9fb8de);border-radius:0 10px 0 0}
+.otree li:first-child::after{border-radius:10px 0 0 0}
+.otree>ul>li::before,.otree>ul>li::after{display:none}
+.otree ul ul::before{content:"";position:absolute;top:0;left:50%;height:26px;border-left:2px solid var(--oline,#9fb8de)}
+:root[data-theme="dark"] .otree{--oline:#3a5a8c}
+.ocard{position:relative;display:flex;flex-direction:column;align-items:center;width:200px}
+.obody{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:16px;text-align:left;cursor:pointer;color:var(--ink);background:var(--g-top,#fff);border:1px solid var(--g-border,#d8e3f4);border-top:4px solid var(--rc,#8aa3c8);box-shadow:0 10px 24px -16px rgba(11,40,90,.5);transition:transform .15s,box-shadow .15s}
+.obody:hover{transform:translateY(-2px);box-shadow:0 16px 30px -16px rgba(11,40,90,.6)}
+.oav{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff;background:var(--rc,#8aa3c8)}
+.otx{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.otx b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.otx span{font-size:11.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.otx .orole{font-weight:600;color:var(--rc,#8aa3c8)}
+.otog{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);min-width:24px;height:24px;padding:0 7px;border-radius:999px;border:1px solid var(--g-border,#d8e3f4);background:var(--g-top,#fff);color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;z-index:1}
+.r-super{--rc:#C40304}.r-admin{--rc:#E02446}.r-clevel{--rc:#8b5cf6}.r-manager{--rc:#0B63D6}.r-lead{--rc:#0e9f8e}.r-member{--rc:#6b84a8}
+.olegend{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--ink2)}
+.olegend i{display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--rc);margin-right:5px;vertical-align:-1px}
+table.acc td.c,table.acc th.c{text-align:center;width:72px}
+table.acc tr.grp td{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+table.acc input{width:18px;height:18px;accent-color:var(--brand,#0B63D6)}
+.accgrid{align-items:start}
+.btn.danger{color:#C40304!important;border-color:rgba(196,3,4,.35)!important}
+.btn.danger svg{stroke:#C40304!important}
+/* a boss with only individual contributors under them: list them in a column, not a long row */
+.otree ul.leafs{flex-direction:column;align-items:flex-start;gap:10px;padding:26px 0 0 28px;margin-left:calc(50% - 100px + 14px)}
+.otree ul.leafs::before{left:-14px!important;height:calc(100% - 38px)!important;top:0}
+.otree ul.leafs>li{padding:0 0 0 0}
+.otree ul.leafs>li::before{display:block!important;content:"";position:absolute;left:-42px;right:auto;top:30px;width:42px;height:0;border-top:2px solid var(--oline,#9fb8de)!important;border-right:0!important;border-radius:0!important}
+.otree ul.leafs>li::after{display:none!important}
+.otree ul.leafs>li>.ocard{width:210px}

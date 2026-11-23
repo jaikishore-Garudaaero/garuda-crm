@@ -36,7 +36,7 @@ function itemsModal(p) {
 
 /* ================= Settings (Admin only) ================= */
 let setTab = 'users';
-const SET_TABS = [['company', 'Company & logo'], ['users', 'Users & Access'], ['depts', 'Teams & processes'], ['import', 'Import sales sheet'], ['config', 'Statuses, stages & lists'], ['targets', 'Sales targets'], ['camptypes', 'Campaign types'], ['rules', 'Visits, escalations & rules'], ['kra', 'KRA'], ['gst', 'GST'], ['lists', 'Lists'], ['email', 'Email senders'], ['ai', 'Claude AI'], ['data', 'Data']];
+const SET_TABS = [['company', 'Company & logo'], ['users', 'Users & Access'], ['depts', 'Teams & processes'], ['import', 'Import sales sheet'], ['config', 'Statuses, stages & lists'], ['targets', 'Sales targets'], ['camptypes', 'Campaign types'], ['rules', 'Visits, escalations & rules'], ['kra', 'KRA'], ['gst', 'GST'], ['lists', 'Lists'], ['email', 'Email senders'], ['ai', 'Claude AI'], ['access', 'Access control'], ['data', 'Data']];
 VIEWS.settings = {
   title: 'Settings', sub: 'Departments and their pipelines, people and access, campaign types, rules, KRA, GST, email, Claude and data. Only Admins open Settings.',
   render(el) {
@@ -45,7 +45,7 @@ VIEWS.settings = {
     el.innerHTML = `<div class="seg wrap">${SET_TABS.map(([k, t]) => `<button data-st="${k}" aria-pressed="${setTab === k}">${t}${k === 'users' && badgeFor('settings') ? ` <span class="badge">${badgeFor('settings')}</span>` : ''}</button>`).join('')}</div><div id="setb" class="view"></div>`;
     el.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => { setTab = b.dataset.st; this.render(el); }));
     const b = el.querySelector('#setb'); const rer = () => this.render(el);
-    ({ company: setCompany, users: setUsers, depts: setDepts, import: setImport, config: setConfig, targets: setTargets, camptypes: setCampTypes, rules: setRules, kra: setKra, gst: setGst, lists: setLists, email: setEmail, ai: setAI, data: setData })[setTab](b, rer);
+    ({ access: setAccess, company: setCompany, users: setUsers, depts: setDepts, import: setImport, config: setConfig, targets: setTargets, camptypes: setCampTypes, rules: setRules, kra: setKra, gst: setGst, lists: setLists, email: setEmail, ai: setAI, data: setData })[setTab](b, rer);
   },
 };
 /* tables keyed by something other than id */
@@ -142,8 +142,8 @@ function setUsers(b, rer) {
   const ps = DB.t.profiles.slice().sort((a, c) => Number(c.active) - Number(a.active) || a.full_name.localeCompare(c.full_name));
   b.innerHTML = `<div class="row between"><div class="seg"><button data-ut="table" aria-pressed="${usersTab === 'table'}">People</button><button data-ut="org" aria-pressed="${usersTab === 'org'}">Org chart</button></div><div class="row"><button class="btn" id="uinvall">${svg('mail')} Invite everyone not signed in</button><button class="btn primary" id="uadd">${svg('plus')} Add person</button></div></div>
     <div class="note info">Only people listed here can sign in. <b>Add person</b> sends them an invite email; their first visit asks them to create a password, and from then on they sign in with their work email and password (or Google, if switched on). <b>Send password reset</b> helps anyone who forgot theirs. Work emails must end in @garudaaerospace.com unless "Allow external email" is ticked. Each person sees their own records and everyone below them in <b>Reports to</b>; C-level and Admin see everything. Deactivating hands their open work to someone else and blocks sign-in.</div>
-    ${usersTab === 'org' ? `<section class="glass panel"><div class="org">${orgTree(null, ps.filter((p) => p.active))}</div></section>` : `<section class="glass panel"><div class="tablewrap"><table><thead><tr><th>Person</th><th>Employee ID</th><th>Departments</th><th>Role</th><th>Reports to</th><th>Work email</th><th>Daily report</th><th>Status</th><th></th></tr></thead><tbody>
-    ${ps.map((p) => `<tr class="${p.active ? '' : 'off'}"><td><b>${esc(p.full_name)}</b><div class="s">${esc(p.designation || '')}</div>${Object.entries(PERMS).filter(([k]) => p.perms?.[k]).map(([, t]) => `<span class="chip">${t}</span>`).join(' ')}</td><td>${esc(p.emp_id || '')}</td><td>${(p.departments || []).map(deptChip).join(' ')}</td><td>${ROLES[p.role] || esc(p.role)}</td><td>${p.reports_to ? esc(DB.pname(p.reports_to)) : '<span class="faint">—</span>'}${below(p.id) ? `<div class="s">${below(p.id)} below</div>` : ''}</td><td class="s">${esc(p.email)}${p.allow_external ? ' <span class="chip warn">external</span>' : ''}</td><td class="s">${esc(p.daily_report || '')}</td><td>${userStatus(p)}</td><td class="n"><button class="btn small" data-ue="${p.id}">Edit</button></td></tr>`).join('')}</tbody></table></div></section>`}`;
+    ${usersTab === 'org' ? `<section class="glass panel" id="orgbox">${orgChart(ps.filter((p) => p.active))}</section>` : `<section class="glass panel"><div class="tablewrap"><table><thead><tr><th>Person</th><th>Employee ID</th><th>Departments</th><th>Role</th><th>Reports to</th><th>Work email</th><th>Daily report</th><th>Status</th><th></th></tr></thead><tbody>
+    ${ps.map((p) => `<tr class="${p.active ? '' : 'off'}"><td><b>${esc(p.full_name)}</b><div class="s">${esc(p.designation || '')}</div>${Object.entries(PERMS).filter(([k]) => p.perms?.[k]).map(([, t]) => `<span class="chip">${t}</span>`).join(' ')}</td><td>${esc(p.emp_id || '')}</td><td>${(p.departments || []).map(deptChip).join(' ')}</td><td>${esc(roleName(p))}</td><td>${p.reports_to ? esc(DB.pname(p.reports_to)) : '<span class="faint">—</span>'}${below(p.id) ? `<div class="s">${below(p.id)} below</div>` : ''}</td><td class="s">${esc(p.email)}${p.allow_external ? ' <span class="chip warn">external</span>' : ''}</td><td class="s">${esc(p.daily_report || '')}</td><td>${userStatus(p)}</td><td class="n"><button class="btn small" data-ue="${p.id}">Edit</button></td></tr>`).join('')}</tbody></table></div></section>`}`;
   b.querySelectorAll('[data-ut]').forEach((x) => (x.onclick = () => { usersTab = x.dataset.ut; rer(); }));
   b.querySelector('#uadd').onclick = () => userModal({}, rer);
   b.querySelector('#uinvall')?.addEventListener('click', () => guard(async () => {
@@ -157,11 +157,7 @@ function setUsers(b, rer) {
   loadSignIns(rer);
   b.querySelectorAll('[data-ue]').forEach((x) => (x.onclick = () => userModal(DB.profile(x.dataset.ue), rer)));
   b.querySelectorAll('[data-org]').forEach((x) => (x.onclick = () => userModal(DB.profile(x.dataset.org), rer)));
-}
-function orgTree(boss, ps) {
-  const kids = ps.filter((p) => (p.reports_to || null) === boss || (boss === null && p.reports_to && !ps.some((q) => q.id === p.reports_to)));
-  if (!kids.length) return '';
-  return `<ul>${kids.map((p) => `<li><button class="onode" data-org="${p.id}"><b>${esc(p.full_name)}</b><span>${esc(p.designation || ROLES[p.role])}</span><span class="faint">${ROLES[p.role]}${below(p.id) ? ` · ${below(p.id)} below` : ''}</span></button>${orgTree(p.id, ps)}</li>`).join('')}</ul>`;
+  const ob = b.querySelector('#orgbox'); if (ob) bindOrg(ob, ps.filter((p) => p.active), rer);
 }
 function userModal(p = {}, rer) {
   const isNew = !p.id; const mine = isNew ? new Set() : scopeIds(p.id);
@@ -169,8 +165,8 @@ function userModal(p = {}, rer) {
   const m = openModal({ title: isNew ? 'Add person' : esc(p.full_name), width: 820,
     body: `<div class="form">${fld('un', 'Full name', inp('un', p.full_name || ''))}${fld('ud', 'Designation', inp('ud', p.designation || ''))}${fld('ui', 'Employee ID', inp('ui', p.emp_id || ''))}
       ${fld('ue', 'Work email', inp('ue', p.email || '', 'email', 'placeholder="name@garudaaerospace.com"'))}
-      ${fld('ur', 'Role', sel('ur', Object.entries(ROLES), p.role || 'member', undefined, p.id === DB.me.id ? 'disabled' : ''))}
-      ${fld('ub', 'Reports to', `<select id="ub">${opts(bosses.map((x) => [x.id, `${x.full_name} · ${ROLES[x.role]}`]), p.reports_to, 'Nobody (top of the tree)')}</select>`)}
+      ${fld('ur', 'Access level', (() => { const cur = p.role === 'admin' && p.super_admin ? 'super' : p.role || 'member'; const locked = p.id === DB.me.id || (!isSuper() && (p.role === 'admin')); const o = ROLE_OPTS(); if (!o.some(([k]) => k === cur)) o.unshift([cur, roleName(p)]); return `<select id="ur" ${locked ? 'disabled' : ''}>${opts(o, cur)}</select>`; })())}
+      ${fld('ub', 'Reports to', `<select id="ub">${opts(bosses.map((x) => [x.id, `${x.full_name} · ${roleName(x)}`]), p.reports_to, 'Nobody (top of the tree)')}</select>`)}
       ${fld('udr', 'Daily report', inp('udr', p.daily_report || '', 'text', 'placeholder="e.g. Telesales – Enquiries & fees"'))}${fld('usn', 'Name in the sales sheet', inp('usn', p.sheet_name || '', 'text', 'placeholder="e.g. Sowmya"'))}
       <div class="full"><label class="faint" style="font-size:11.5px;font-weight:600">Departments</label><div class="row">${DEPTS(true).map((d) => `<label class="check"><input type="checkbox" class="udp" value="${esc(d.code)}" ${(p.departments || []).includes(d.code) ? 'checked' : ''}> ${esc(d.name)}</label>`).join('')}</div></div>
       <div class="full"><label class="faint" style="font-size:11.5px;font-weight:600">Permissions</label><div class="row">${Object.entries(PERMS).map(([k, t]) => `<label class="check"><input type="checkbox" class="upm" value="${k}" ${p.perms?.[k] ? 'checked' : ''}> ${t}</label>`).join('')}</div>
@@ -189,7 +185,7 @@ function userModal(p = {}, rer) {
     if (clash) throw new Error(`${clash.full_name}${clash.active ? '' : ' (deactivated)'} already has this email.`);
     const perms = Object.fromEntries($$('.upm', m.el).map((c) => [c.value, c.checked]).filter(([, x]) => x));
     const row = { full_name: v(m.el, 'un').trim(), designation: v(m.el, 'ud').trim(), emp_id: v(m.el, 'ui').trim(), email, reports_to: v(m.el, 'ub') || null, daily_report: v(m.el, 'udr').trim(), sheet_name: v(m.el, 'usn').trim(), departments: $$('.udp:checked', m.el).map((c) => c.value), perms, allow_external: ext };
-    if (p.id !== DB.me.id) row.role = v(m.el, 'ur');
+    if (p.id !== DB.me.id && !m.el.querySelector('#ur').disabled) { const lv = v(m.el, 'ur'); row.role = lv === 'super' ? 'admin' : lv; if (isSuper()) row.super_admin = lv === 'super'; }
     if (same) delete row.email; /* unchanged: never rewrite the sign-in email */
     if (isNew) {
       const np = await DB.insert('profiles', { ...row, active: true, role: row.role || 'member' });

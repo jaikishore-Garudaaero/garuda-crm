@@ -170,7 +170,7 @@ function ldList(box, tab, rer) {
     <div class="row bulk" id="bulk" hidden><b id="bulkn"></b>
       ${canReassign() ? `<select id="bassign"><option value="">Assign to…</option>${assignablePeople().map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`).join('')}</select>` : ''}
       ${deptCodes.length === 1 ? `<select id="bstage"><option value="">Change status…</option>${opts(S.list(deptCodes[0], tab === 'deals' ? 'deal' : 'lead').map((s) => s.key))}</select>` : '<span class="faint" style="font-size:12px">Pick one department to change status in bulk</span>'}
-      ${canEmail() ? '<button class="btn small" id="bmail">Email</button>' : ''}${canExport() ? '<button class="btn small" id="bexp">Export</button>' : ''}</div>
+      ${canEmail() ? '<button class="btn small" id="bmail">Email</button>' : ''}${canExport() ? '<button class="btn small" id="bexp">Export</button>' : ''}${isSuper() ? `<button class="btn small danger" id="bdel">${svg('x')} Delete</button>` : ''}</div>
     ${shown.length ? `<div class="tablewrap ldt free"><table><thead><tr><th class="ck"><input type="checkbox" id="lall" aria-label="Select all"></th>${cols.map(th).join('')}</tr></thead><tbody>
       ${shown.map((l) => `<tr class="click tone-${leadTone(l) || 'none'}" data-lead="${l.id}"><td class="ck" onclick="event.stopPropagation()"><input type="checkbox" class="lchk" value="${l.id}" aria-label="Select"></td>${cols.map(([key]) => td(l, key)).join('')}</tr>`).join('')}
       </tbody></table></div>${pager(total, pages, from, shown.length)}
@@ -192,6 +192,7 @@ function ldList(box, tab, rer) {
   const upd = () => { const n = chosen().length; box.querySelector('#bulk').hidden = !n; box.querySelector('#bulkn').textContent = n + ' selected'; };
   box.querySelectorAll('.lchk').forEach((c) => (c.onchange = upd));
   box.querySelector('#lall')?.addEventListener('change', (e) => { $$('.lchk', box).forEach((c) => (c.checked = e.target.checked)); upd(); });
+  box.querySelector('#bdel')?.addEventListener('click', () => deleteLeads(chosen(), rer));
   box.querySelector('#bassign')?.addEventListener('change', (e) => guard(async () => { const to = e.target.value; if (!to) return; const n = await DB.bulkUpdate('leads', chosen(), { owner: to }); toast(`${n} assigned to ${DB.pname(to)}`); rer(); }));
   box.querySelector('#bstage')?.addEventListener('change', (e) => guard(async () => {
     const to = e.target.value; if (!to) return; const ids = chosen(); let ok = 0;
@@ -441,7 +442,7 @@ function openLead(id) {
         <button class="btn small" id="dcamp">${svg('ads')} ${camp ? esc(camp.name) : 'Campaign'}</button>
         ${l.phone ? `<a class="btn small" href="tel:${esc(l.phone)}">${svg('phone')} Call</a><a class="btn small" href="https://wa.me/91${esc(l.phone.replace(/\D/g, '').slice(-10))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
         <button class="btn small" id="dquote">Disclose price</button>
-        ${L.open(l) && DEPTS().length > 1 ? `<button class="btn small" id="dxfer" title="This enquiry belongs to another team">${svg('swap')} Transfer</button>` : ''}</div>
+        ${isSuper() ? `<button class="btn small danger" id="ddel" title="Delete this lead for good">${svg('x')} Delete</button>` : ''}${L.open(l) && DEPTS().length > 1 ? `<button class="btn small" id="dxfer" title="This enquiry belongs to another team">${svg('swap')} Transfer</button>` : ''}</div>
       ${l.ai_next_action ? `<div style="padding:0 18px 8px"><div class="ai-card" style="padding:8px 12px;font-size:12.5px"><b>Claude:</b> ${esc(l.ai_next_action)} <span class="faint">${l.ai_scored_at ? '· scored ' + rel(l.ai_scored_at) : ''}</span></div></div>` : ''}
       <div class="rec2"><section class="rec-left"><div class="rec-h"><h3>Client details</h3></div><div class="rec-scroll" id="dleft"></div></section>
         <section class="rec-right"><div class="tabs" role="tablist">${LEAD_TABS.map(([k, t]) => `<button role="tab" data-tab="${k}" aria-selected="${leadTab === k}">${t}</button>`).join('')}</div>
@@ -454,6 +455,7 @@ function openLead(id) {
     ctx.el.querySelector('#dvisit').onclick = () => visitModal({ lead_id: l.id, institution_id: l.institution_id }, () => ctx.render());
     ctx.el.querySelector('#dacct').onclick = () => (inst ? openAccount(inst.id) : linkAccountModal(l, () => ctx.render()));
     ctx.el.querySelector('#dcamp').onclick = () => linkCampaignModal(l, () => ctx.render());
+    ctx.el.querySelector('#ddel')?.addEventListener('click', () => deleteLeads([l.id], () => { ctx.close(); if (VIEWS[ST.view]) go(ST.view); }));
     ctx.el.querySelector('#dxfer')?.addEventListener('click', () => transferModal(l, () => (DB.get('leads', l.id) && visibleLeads().some((x) => x.id === l.id) ? ctx.render() : ctx.close())));
     if (!LEAD_TABS.some(([k]) => k === leadTab)) leadTab = 'history';
     tabOverview(l, ctx.el.querySelector('#dleft'), ctx);
