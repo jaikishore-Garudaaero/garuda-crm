@@ -260,6 +260,7 @@ const NAV = [
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Field Visits', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()], ['automations', 'Automations', 'spark', () => !hideSales() && !isMember()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
   ['Execution', [['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
+  ['Control', [['activity', 'Activity log', 'eye', () => isSuper()]]],
 ];
 /* Price Book and Settings live in the menu under the user's name */
 const USER_MENU = [['pricebook', 'Price Book', 'price', () => (!isMember() && !hideSales()) || canPricebook()], ['settings', 'Settings', 'set', () => isHead()]];

@@ -16,13 +16,15 @@ function roleBlocks(role) { const c = accessCfg().roles?.[role]; return new Set(
 function canView(v, p = DB.me) {
   if (!p) return false;
   if (p.role === 'admin' && p.super_admin) return true;
+  if (SUPER_PAGES.includes(v)) return false;
   if (v === 'settings') return p.role === 'admin';
   const pc = accessCfg().people?.[p.id];
   if (pc?.allow?.includes(v)) return true;
   if (pc?.block?.includes(v)) return false;
   return !roleBlocks(p.role).has(v);
 }
-const ALL_PAGES = () => [...NAV.flatMap(([g, items]) => items.map((i) => [i[0], navLabel(i), g])), ['pricebook', 'Price Book', 'Menu']];
+const SUPER_PAGES = ['activity'];
+const ALL_PAGES = () => [...NAV.flatMap(([g, items]) => items.filter((i) => !SUPER_PAGES.includes(i[0])).map((i) => [i[0], navLabel(i), g])), ['pricebook', 'Price Book', 'Menu']];
 
 /* ---------- Settings → Access control (Super admin) ---------- */
 function setAccess(b, rer) {

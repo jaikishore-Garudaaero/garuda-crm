@@ -309,6 +309,7 @@ function switchView() {
 window.addEventListener('resize', () => placeGlider(false));
 function renderView() {
   const el = $('#view'); if (!el) return;
+  if (typeof canView === 'function' && !canView(ST.view)) { el.innerHTML = `<section class="glass panel">${empty('This page is not open to you', 'Ask the Super admin if you need it.')}</section>`; return; }
   try { VIEWS[ST.view].render(el); } catch (e) { console.error(e); el.innerHTML = `<div class="glass panel note">Something went wrong showing this page: ${esc(e.message)}</div>`; }
 }
 /* re-render the current page (used after saves and live updates) */
@@ -362,6 +363,7 @@ function bootScreen() {
       const step = await passwordStep(); if (step) return renderSetPassword(step);
     }
     loadUI();
+    if (DB.mode === 'live') logSignIn();
     let [v, arg] = location.hash.slice(1).split('/');
     if (MOVED[v]) v = MOVED[v];
     if (v && VIEWS[v]) { ST.view = v; ST.arg = arg || null; } else ST.view = homeView();

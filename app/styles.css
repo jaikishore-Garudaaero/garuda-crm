@@ -2659,3 +2659,26 @@ table.acc input{width:18px;height:18px;accent-color:var(--brand,#0B63D6)}
 .otree ul.leafs>li::before{display:block!important;content:"";position:absolute;left:-42px;right:auto;top:30px;width:42px;height:0;border-top:2px solid var(--oline,#9fb8de)!important;border-right:0!important;border-radius:0!important}
 .otree ul.leafs>li::after{display:none!important}
 .otree ul.leafs>li>.ocard{width:210px}
+
+/* ===== v6.2 · Activity log (Super admin) ===== */
+.acttab tr.sel td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.acttab .s{font-size:11.5px}
+.actbars{display:flex;flex-direction:column;gap:6px}
+.actbar{display:grid;grid-template-columns:130px 1fr 60px;align-items:center;gap:10px;background:none;border:0;padding:4px 6px;border-radius:8px;cursor:pointer;color:inherit;font:inherit;text-align:left}
+.actbar:hover,.actbar.sel{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.actbar span{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.actbar i{display:block;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#E02446));width:var(--w)}
+.actbar b{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+.actfeed{display:flex;flex-direction:column}
+.actday{margin:14px 0 4px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.actday:first-child{margin-top:0}
+.actrow{display:flex;gap:10px;align-items:flex-start;padding:8px 4px;border-bottom:1px solid var(--hair);font-size:13px}
+.actrow .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.acttime{flex:0 0 64px;font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums;padding-top:2px}
+.actrow .chip{flex:0 0 auto}
+.actrow details summary{cursor:pointer;font-size:12px;margin-top:3px}
+.actdiff{display:grid;gap:4px;margin:6px 0 2px;padding:8px 10px;border-radius:10px;background:var(--glass);border:1px solid var(--hair);font-size:12.5px}
+.actdiff>div{display:grid;grid-template-columns:140px 1fr;gap:10px}
+.actdiff s{opacity:.6}
+@media (max-width:640px){.actrow{flex-wrap:wrap}.acttime{flex-basis:100%}.actbar{grid-template-columns:96px 1fr 44px}.actdiff>div{grid-template-columns:1fr}}
+.achk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;width:auto!important}.achk input{width:auto!important;margin:0}
