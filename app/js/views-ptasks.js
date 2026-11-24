@@ -35,41 +35,61 @@ function ptRing(pct, size = 58) {
 }
 const ptBar = (pct) => `<span class="pt-bar t-${ptTone(pct)}"><i style="width:${pct}%"></i></span><b class="pt-pc">${pct}%</b>`;
 
-const PTS = { status: 'active', sort: 'due', closed: new Set(), topen: new Set() };
-function ptRender(box, rer) {
-  if (!box) return;
+/* project type: business (official work) or lead (a department and a lead) */
+const projKind = (p) => p.kind || (p.lead_id ? 'lead' : 'business');
+const projOk = (p) => projKind(p) === 'business' ? ST.dept === 'All' || !p.dept || p.dept === ST.dept : M.deptOk(p.dept);
+function projTag(p) {
+  if (projKind(p) === 'business') return '<span class="chip pj-biz">Business</span>';
+  const l = p.lead_id && DB.get('leads', p.lead_id);
+  return `${p.dept ? deptChip(p.dept) : ''}${l ? `<span class="pj-lead">${esc(l.name)}</span>` : ''}`;
+}
+const projColor = (p) => (projKind(p) === 'business' ? '#7b5cf0' : deptColor(p.dept));
+
+const PTS = { sort: 'due', closed: new Set(), topen: new Set(), q: '' };
+/* Project Management → Overview: the totals and a card per project with its % complete */
+function ptOverview(box, projects, { onPick } = {}) {
   const today = todayStr();
-  let projects = DB.t.projects.filter((p) => M.deptOk(p.dept) && (ST.person === 'all' || p.owner === ST.person || p.deal_owner === ST.person || projTasks(p.id).some((t) => t.owner === ST.person)));
-  if (PTS.status === 'active') projects = projects.filter((p) => p.status !== 'Completed');
-  else if (PTS.status === 'Completed') projects = projects.filter((p) => p.status === 'Completed');
   const G = new Map(projects.map((p) => [p.id, projProgress(p)]));
   const S = { due: (a, b) => String(a.end_date || a.target_date || '9999').localeCompare(String(b.end_date || b.target_date || '9999')), progress: (a, b) => G.get(a.id).pct - G.get(b.id).pct, name: (a, b) => a.name.localeCompare(b.name) };
-  projects.sort(S[PTS.sort] || S.due);
+  projects = [...projects].sort(S[PTS.sort] || S.due);
   const all = [...G.values()]; const tasksN = sum(all, (g) => g.tasks); const tasksD = sum(all, (g) => g.tasksDone); const lateN = sum(all, (g) => g.late);
   const avg = projects.length ? Math.round(sum(all, (g) => g.pct) / projects.length) : 0;
   const attention = projects.filter((p) => ['Late', 'At risk', 'Behind'].includes(projHealth(p, G.get(p.id))[0])).length;
-  const q = TF.q.trim().toLowerCase();
-  const taskShown = (t) => (!TF.pri || (t.priority || 'Normal') === TF.pri) && (!q || `${t.title} ${t.notes || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(q));
-  const sel1 = TF.proj && DB.get('projects', TF.proj);
-  const tree = sel1 ? [sel1] : projects.filter((p) => !q || p.name.toLowerCase().includes(q) || projTasks(p.id).some(taskShown));
-  if (sel1 && !G.has(sel1.id)) G.set(sel1.id, projProgress(sel1));
-
+  const nb = projects.filter((p) => projKind(p) === 'business').length;
   const card = (p) => { const g = G.get(p.id); const [hw, ht] = projHealth(p, g); const end = p.end_date || p.target_date;
-    return `<button class="pt-card ${TF.proj === p.id ? 'sel' : ''}" data-ptcard="${p.id}" style="--dc:${esc(deptColor(p.dept))}">
-      <div class="pt-ch">${ptRing(g.pct)}<div class="pt-cn"><b>${esc(p.name)}</b><span class="faint">${p.project_code ? esc(p.project_code) + ' · ' : ''}${esc(dept(p.dept)?.name || p.dept || '')}</span></div></div>
+    return `<button class="pt-card" data-ptcard="${p.id}" style="--dc:${esc(projColor(p))}">
+      <div class="pt-ch">${ptRing(g.pct)}<div class="pt-cn"><b>${esc(p.name)}</b><span class="pt-tags">${p.project_code ? `<span class="faint">${esc(p.project_code)}</span>` : ''}${projTag(p)}</span></div></div>
       <div class="pt-stack" title="To do · In progress · Done">${g.tasks ? `<i class="s-todo" style="flex:${g.tasks - g.tasksDone - g.prog}"></i><i class="s-prog" style="flex:${g.prog}"></i><i class="s-done" style="flex:${g.tasksDone}"></i>` : '<i class="s-none" style="flex:1"></i>'}</div>
       <div class="pt-cm"><span>${g.from === 'tasks' ? `<b>${g.tasksDone}</b>/${g.tasks} tasks${g.subs ? ` · <b>${g.subsDone}</b>/${g.subs} sub-tasks` : ''}` : g.from === 'milestones' ? 'From milestones' : 'No tasks yet'}</span></div>
       <div class="pt-cf">${avHTML(p.owner, 'xs')}<span class="faint">${end ? (end < today && hw !== 'Done' ? `<span class="bad">Ended ${fmtDate(end)}</span>` : `Due ${fmtDate(end)}`) : 'No end date'}</span><span class="grow"></span>${g.late ? `<span class="chip tone bad">${g.late} late</span>` : ''}<span class="chip tone ${ht}">${hw}</span></div></button>`; };
+  box.innerHTML = `<div class="pt-wrap">
+    <div class="pt-kpis">
+      <div class="pt-k big">${ptRing(avg, 74)}<div><b>Average completion</b><span class="faint">${nfmt(projects.length)} project${projects.length === 1 ? '' : 's'} · ${nfmt(nb)} business · ${nfmt(projects.length - nb)} lead</span></div></div>
+      <div class="pt-k"><b>${nfmt(tasksD)}<span class="faint">/${nfmt(tasksN)}</span></b><span>Tasks done</span></div>
+      <div class="pt-k ${lateN ? 'bad' : ''}"><b>${nfmt(lateN)}</b><span>Tasks overdue</span></div>
+      <div class="pt-k ${attention ? 'warn' : ''}"><b>${nfmt(attention)}</b><span>Projects needing attention</span></div>
+    </div>
+    <div class="pt-head"><h3>All projects</h3><span class="grow"></span><select id="ptsort" aria-label="Sort projects">${opts([['due', 'Sort: end date'], ['progress', 'Sort: least done first'], ['name', 'Sort: name']], PTS.sort)}</select></div>
+    <div class="pt-cards">${projects.map(card).join('')}</div></div>`;
+  box.querySelector('#ptsort').onchange = (e) => { PTS.sort = e.target.value; onPick?.(null, true); };
+  box.querySelectorAll('[data-ptcard]').forEach((b) => (b.onclick = () => onPick?.(b.dataset.ptcard)));
+}
 
+/* Project Management → Tasks: project → task → sub-task, with owner, status, dates, % complete, duration and priority */
+function ptTree(box, projects, { sel = '', onSel, rer } = {}) {
+  const today = todayStr(); const q = PTS.q.trim().toLowerCase();
+  const taskShown = (t) => !q || `${t.title} ${t.notes || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(q);
+  const sel1 = sel && DB.get('projects', sel);
+  const tree = sel1 ? [sel1] : projects.filter((p) => !q || p.name.toLowerCase().includes(q) || projTasks(p.id).some(taskShown));
   const dur = (a, b) => { const d = ptDays(a, b); return d ? `${d} day${d === 1 ? '' : 's'}` : '—'; };
   const due = (d, open) => (d ? `<span class="${open && d < today ? 'bad' : ''}">${fmtDate(d)}</span>` : '—');
   const stChip = (t) => { const tone = t.status === 'Done' ? 'good' : t.status === 'In progress' ? 'warn' : taskOpen(t) && t.due_date && t.due_date < today ? 'bad' : 'info'; return `<span class="chip tone ${tone}">${t.status === 'Open' ? (tone === 'bad' ? 'Overdue' : 'To do') : esc(t.status)}</span>`; };
   const who = (pid) => (pid ? `<span class="pt-who">${avHTML(pid, 'xs')}<span>${esc(DB.pname(pid))}</span></span>` : '<span class="faint">Unassigned</span>');
   const rows = tree.map((p) => {
-    const g = G.get(p.id); const [hw, ht] = projHealth(p, g); const open = !PTS.closed.has(p.id) || !!sel1;
+    const g = projProgress(p); const [hw, ht] = projHealth(p, g); const open = !PTS.closed.has(p.id) || !!sel1;
     const ts = projTasks(p.id).filter(taskShown).sort((a, b) => String(a.start_date || a.due_date || '9').localeCompare(String(b.start_date || b.due_date || '9')) || String(a.created_at).localeCompare(String(b.created_at)));
     const end = p.end_date || p.target_date;
-    let h = `<tr class="pt-p" style="--dc:${esc(deptColor(p.dept))}"><td class="pt-n"><button class="pt-tg ${open ? 'on' : ''}" data-ptp="${p.id}" aria-label="${open ? 'Collapse' : 'Expand'}">${svg('chevr')}</button><span class="pt-sw"></span><a href="#" data-ptpj="${p.id}"><b>${esc(p.name)}</b></a> <span class="faint">${g.tasks} task${g.tasks === 1 ? '' : 's'}</span></td>
+    let h = `<tr class="pt-p" style="--dc:${esc(projColor(p))}"><td class="pt-n"><button class="pt-tg ${open ? 'on' : ''}" data-ptp="${p.id}" aria-label="${open ? 'Collapse' : 'Expand'}">${svg('chevr')}</button><span class="pt-sw"></span><a href="#" data-ptpj="${p.id}"><b>${esc(p.name)}</b></a> <span class="faint">${g.tasks} task${g.tasks === 1 ? '' : 's'}</span></td>
       <td>${who(p.owner)}</td><td><span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></td><td>${fmtDate(p.start_date)}</td><td>${due(end, p.status !== 'Completed')}</td><td class="pt-pr">${ptBar(g.pct)}</td><td>${dur(p.start_date, end)}</td><td><span class="chip tone ${ht}">${hw}</span></td></tr>`;
     if (!open) return h;
     h += ts.map((t) => { const subs = taskSubs(t.id); const to = PTS.topen.has(t.id); const pc = taskPct(t);
@@ -80,27 +100,11 @@ function ptRender(box, rer) {
     h += `<tr class="pt-add"><td colspan="8"><span class="pt-in1"></span><span class="tk-check add">${svg('plus')}</span><input data-ptadd="${p.id}" placeholder="Add a task to ${esc(p.name)} and press Enter" aria-label="New task in ${esc(p.name)}"></td></tr>`;
     return h;
   }).join('');
-
-  box.innerHTML = `<div class="pt-wrap">
-    <div class="pt-kpis">
-      <div class="pt-k big">${ptRing(avg, 74)}<div><b>Average completion</b><span class="faint">${nfmt(projects.length)} project${projects.length === 1 ? '' : 's'} ${PTS.status === 'active' ? 'running' : PTS.status === 'Completed' ? 'completed' : 'in all'}</span></div></div>
-      <div class="pt-k"><b>${nfmt(tasksD)}<span class="faint">/${nfmt(tasksN)}</span></b><span>Tasks done</span></div>
-      <div class="pt-k ${lateN ? 'bad' : ''}"><b>${nfmt(lateN)}</b><span>Tasks overdue</span></div>
-      <div class="pt-k ${attention ? 'warn' : ''}"><b>${nfmt(attention)}</b><span>Projects needing attention</span></div>
-    </div>
-    <div class="pt-head"><h3>All projects</h3>
-      <div class="seg">${[['active', 'Running'], ['Completed', 'Completed'], ['all', 'All']].map(([k, w]) => `<button data-pts="${k}" aria-pressed="${PTS.status === k}">${w}</button>`).join('')}</div>
-      <select id="ptsort" aria-label="Sort projects">${opts([['due', 'Sort: end date'], ['progress', 'Sort: least done first'], ['name', 'Sort: name']], PTS.sort)}</select></div>
-    ${projects.length ? `<div class="pt-cards">${projects.map(card).join('')}</div>` : empty('No projects here', 'A won deal becomes a project. You can also add one in Project Management.', '<a class="btn small" href="#projects">Open Project Management</a>')}
-    <div class="pt-head"><h3>${sel1 ? `Tasks in <span class="pt-selname">${esc(sel1.name)}</span>` : 'Project-wise tasks'}</h3>${sel1 ? `<button class="btn ghost small" id="ptx">${svg('x')} All projects</button>` : ''}
-      <span class="grow"></span><button class="btn ghost small" id="ptexp">Expand all</button><button class="btn ghost small" id="ptcol">Collapse all</button></div>
-    ${tree.length ? `<div class="tablewrap pt-tw"><table class="pt"><thead><tr><th>Project · task · sub-task</th><th>Owner</th><th>Status</th><th>Start</th><th>Due</th><th>% complete</th><th>Duration</th><th>Priority</th></tr></thead><tbody>${rows}</tbody></table></div>` : empty('Nothing matches', 'Clear the search or the priority filter.')}
-  </div>`;
-
-  box.querySelectorAll('[data-pts]').forEach((b) => (b.onclick = () => { PTS.status = b.dataset.pts; TF.proj = ''; rer(); }));
-  box.querySelector('#ptsort').onchange = (e) => { PTS.sort = e.target.value; rer(); };
-  box.querySelectorAll('[data-ptcard]').forEach((b) => (b.onclick = () => { TF.proj = TF.proj === b.dataset.ptcard ? '' : b.dataset.ptcard; rer(); setTimeout(() => $('.pt-tw')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }));
-  box.querySelector('#ptx')?.addEventListener('click', () => { TF.proj = ''; rer(); });
+  box.innerHTML = `<div class="pt-head"><h3>${sel1 ? `Tasks in <span class="pt-selname">${esc(sel1.name)}</span>` : 'Project-wise tasks'}</h3>${sel1 ? `<button class="btn ghost small" id="ptx">${svg('x')} All projects</button>` : ''}
+      <input type="search" id="ptq" placeholder="Search projects and tasks" value="${esc(PTS.q)}"><span class="grow"></span><button class="btn ghost small" id="ptexp">Expand all</button><button class="btn ghost small" id="ptcol">Collapse all</button></div>
+    ${tree.length ? `<div class="tablewrap pt-tw"><table class="pt"><thead><tr><th>Project · task · sub-task</th><th>Owner</th><th>Status</th><th>Start</th><th>Due</th><th>% complete</th><th>Duration</th><th>Priority</th></tr></thead><tbody>${rows}</tbody></table></div>` : empty('Nothing matches', 'Clear the search.')}`;
+  box.querySelector('#ptx')?.addEventListener('click', () => onSel?.(''));
+  const qi = box.querySelector('#ptq'); qi.oninput = () => { PTS.q = qi.value; clearTimeout(ptTree._t); ptTree._t = setTimeout(() => { rer(); const i = document.querySelector('#ptq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 300); };
   box.querySelector('#ptexp').onclick = () => { PTS.closed.clear(); tree.forEach((p) => projTasks(p.id).forEach((t) => PTS.topen.add(t.id))); rer(); };
   box.querySelector('#ptcol').onclick = () => { PTS.topen.clear(); if (!sel1) tree.forEach((p) => PTS.closed.add(p.id)); rer(); };
   box.querySelectorAll('[data-ptp]').forEach((b) => (b.onclick = () => { const id = b.dataset.ptp; if (PTS.closed.has(id)) PTS.closed.delete(id); else PTS.closed.add(id); rer(); }));
@@ -111,6 +115,43 @@ function ptRender(box, rer) {
   box.querySelectorAll('[data-ptsd]').forEach((b) => (b.onclick = () => guard(async () => { const x = DB.get('work_subtasks', b.dataset.ptsd); await DB.update('work_subtasks', x.id, { done: !x.done }); DB.t.work_tasks = await DB.fetchAll('work_tasks'); rer(); })));
   box.querySelectorAll('[data-ptadd]').forEach((i) => (i.onkeydown = (e) => { if (e.key !== 'Enter' || !i.value.trim()) return; const pid = i.dataset.ptadd;
     guard(async () => { await DB.insert('work_tasks', { title: i.value.trim(), project_id: pid, owner: DB.me.id, created_by: DB.me.id, status: 'Open', priority: 'Normal', start_date: todayStr() }); PTS.closed.delete(pid); rer(); setTimeout(() => document.querySelector(`[data-ptadd="${pid}"]`)?.focus(), 40); }, 'Task added'); }));
+}
+
+/* a lead picker for lead projects: leads and deals of one department only (no accounts) */
+function leadOnlyPicker(id, leadId) {
+  const l = leadId && DB.get('leads', leadId);
+  return `<div class="picker" id="${id}" data-val="${esc(leadId || '')}"><input id="${id}-q" placeholder="Type the lead or deal name" value="${esc(l ? l.name : '')}" autocomplete="off" aria-label="Lead"><div class="picks" hidden></div></div>`;
+}
+function bindLeadOnlyPicker(root, id, deptOf) {
+  const box = root.querySelector('#' + id); if (!box) return;
+  const q = box.querySelector('input'); const out = box.querySelector('.picks');
+  q.oninput = () => {
+    const s = q.value.trim().toLowerCase(); box.dataset.val = ''; if (s.length < 2) { out.hidden = true; return; }
+    const d = deptOf();
+    const ls = visibleLeads().filter((l) => (!d || l.funnel === d) && ((l.name || '').toLowerCase().includes(s) || L.company(l).toLowerCase().includes(s) || (l.phone || '').includes(s)))
+      .sort((a, b) => Number(!!b.is_deal) - Number(!!a.is_deal)).slice(0, 8);
+    out.innerHTML = ls.map((l) => `<button type="button" data-pk="${l.id}">${l.is_deal ? 'Deal' : 'Lead'} · ${esc(l.name)}${L.company(l) && !l.name.includes(L.company(l)) ? ' · ' + esc(L.company(l)) : ''}</button>`).join('') || `<span class="faint">No ${d ? esc(dept(d).name) + ' ' : ''}lead matches</span>`; out.hidden = false;
+    out.querySelectorAll('[data-pk]').forEach((b) => (b.onclick = () => { box.dataset.val = b.dataset.pk; q.value = DB.get('leads', b.dataset.pk)?.name || b.textContent; out.hidden = true; }));
+  };
+}
+/* the type question shared by New project and the Details tab */
+function projTypeFields(p = {}) {
+  const k = p.id ? projKind(p) : p.kind || 'business';
+  return `${fld('pk', 'Is this project lead related or business related?', `<div class="seg" id="pkind">${[['business', 'Business related'], ['lead', 'Lead related']].map(([x, w]) => `<button type="button" data-pkind="${x}" aria-pressed="${k === x}">${w}</button>`).join('')}</div>`, 'full')}
+    <div class="full pk-lead" ${k === 'lead' ? '' : 'hidden'}><div class="form">${fld('pkd', 'Department', sel('pkd', DEPTS(true).map((d) => [d.code, d.name]), p.dept || (ST.dept !== 'All' ? ST.dept : myDepts()[0]), 'Choose the department'))}${fld('pkl', 'Lead', leadOnlyPicker('pkl', p.lead_id))}</div></div>`;
+}
+function bindProjType(root) {
+  root.querySelectorAll('[data-pkind]').forEach((b) => (b.onclick = () => { root.querySelectorAll('[data-pkind]').forEach((x) => x.setAttribute('aria-pressed', x === b)); root.querySelector('.pk-lead').hidden = b.dataset.pkind !== 'lead'; }));
+  bindLeadOnlyPicker(root, 'pkl', () => v(root, 'pkd'));
+  root.querySelector('#pkd').onchange = () => { const box = root.querySelector('#pkl'); const l = DB.get('leads', box.dataset.val); if (l && l.funnel !== v(root, 'pkd')) { box.dataset.val = ''; box.querySelector('input').value = ''; } };
+}
+function projTypeVal(root) {
+  const kind = root.querySelector('[data-pkind][aria-pressed="true"]')?.dataset.pkind || 'business';
+  if (kind === 'business') return { kind, dept: null, lead_id: null, institution_id: null };
+  const d = v(root, 'pkd'); const lid = root.querySelector('#pkl')?.dataset.val || '';
+  if (!d) throw new Error('Choose the department.');
+  if (!lid) throw new Error('Choose the lead (type its name and pick it from the list).');
+  return { kind, dept: d, lead_id: lid, institution_id: DB.get('leads', lid)?.institution_id || null };
 }
 
 /* the project drawer: its tasks and % complete at the top of "Milestones & tasks" */

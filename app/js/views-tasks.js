@@ -8,6 +8,7 @@ const taskSubs = (id) => DB.t.work_subtasks.filter((s) => s.task_id === id).sort
 /* progress: ticked sub-tasks, or the % set by hand when a task has no sub-tasks */
 function taskPct(t) { const s = taskSubs(t.id); if (t.status === 'Done') return 100; if (!s.length) return clamp(Number(t.progress) || 0, 0, 100); return Math.round((s.filter((x) => x.done).length / s.length) * 100); }
 const isProjTask = (t) => !!t.project_id;
+const projBadge = (pj) => `<span class="tk-projb" style="--dc:${esc(typeof projColor === 'function' ? projColor(pj) : '#7b5cf0')}" title="Project">${svg('proj')} ${esc(pj.name)}</span>`;
 /* positive / alarming / negative */
 function taskTone(t) {
   if (t.status === 'Done') return 'good';
@@ -142,7 +143,7 @@ const priFlag = (p) => (p && p !== 'Normal' ? `<span class="tk-pri p-${p.toLower
 function tkCard(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t); const pct = taskPct(t);
   return `<article class="tk-card pri-${(t.priority || 'Normal').toLowerCase()} ${t.status === 'Done' ? 'is-done' : ''}" draggable="true" data-tk="${t.id}" tabindex="0" aria-label="${esc(t.title)}">
-    <div class="tk-top">${priFlag(t.priority)}${lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
+    <div class="tk-top">${priFlag(t.priority)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
     <b class="tk-title">${esc(t.title)}</b>
     ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
     <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Updates">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
@@ -153,7 +154,7 @@ function tkRow(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t);
   return `<div class="tk-row ${t.status === 'Done' ? 'is-done' : ''}" data-tk="${t.id}" tabindex="0">
     <button class="tk-check ${t.status === 'Done' ? 'on' : ''}" data-tkdone="${t.id}" aria-label="${t.status === 'Done' ? 'Mark not done' : 'Mark done'}">${svg('check')}</button>
-    <span class="tk-rt"><b>${esc(t.title)}</b>${lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
+    <span class="tk-rt"><b>${esc(t.title)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
     <span class="tk-rs">${subs.length ? `<span class="tk-cnt">${svg('check')} ${done}/${subs.length}</span>` : ''}</span>
     <span class="tk-rs">${t.status === 'In progress' ? '<span class="chip tone warn">In progress</span>' : ''}</span>
     <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${avHTML(t.owner)}
@@ -201,7 +202,7 @@ function taskDrawer(id, after) {
     const subs = taskSubs(t.id); const pct = taskPct(t); const lk = taskLink(t);
     const canDel = t.created_by === DB.me.id || canReassign();
     ctx.el.innerHTML = `<div class="tkd">
-      <div class="drawer-head row between"><span class="faint">${lk ? `<a href="#" ${lk.l ? `data-lead="${lk.l.id}"` : ''}>${esc(lk.kind)} · ${esc(lk.name)}</a>` : 'Task'}</span><button class="btn ghost small" id="tkx" aria-label="Close">${svg('x')}</button></div>
+      <div class="drawer-head row between"><span class="faint">${lk ? `<a href="#" ${lk.l ? `data-lead="${lk.l.id}"` : ''} ${lk.pj ? `data-pjo="${lk.pj.id}"` : ''}>${lk.pj ? projBadge(lk.pj) : `${esc(lk.kind)} · ${esc(lk.name)}`}</a>` : 'Task'}</span><button class="btn ghost small" id="tkx" aria-label="Close">${svg('x')}</button></div>
       <div class="seg tkd-st">${[...TSTAT, ['Cancelled', 'Cancelled', 'mute']].map(([k, w]) => `<button data-st="${k}" aria-pressed="${t.status === k}">${w}</button>`).join('')}</div>
       <textarea id="tkt" class="tkd-title" rows="1" aria-label="Task name">${esc(t.title)}</textarea>
       <div class="tkd-f">
@@ -232,6 +233,7 @@ function taskDrawer(id, after) {
     const el = ctx.el; const re = () => { ctx.render(); done(); };
     const save = (patch, msg) => guard(async () => { await DB.update('work_tasks', t.id, patch); re(); }, msg);
     el.querySelector('#tkx').onclick = () => ctx.close();
+    el.querySelector('[data-pjo]')?.addEventListener('click', (e) => { e.preventDefault(); const id = e.currentTarget.dataset.pjo; ctx.close(); openProject(id); });
     el.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => save({ status: b.dataset.st })));
     const ti = el.querySelector('#tkt'); const fit = () => { ti.style.height = 'auto'; ti.style.height = ti.scrollHeight + 'px'; }; fit(); ti.oninput = fit;
     ti.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ti.blur(); } };
@@ -260,14 +262,15 @@ function taskDrawer(id, after) {
 }
 
 VIEWS.tasks = {
-  title: 'Tasks', sub: 'Plan, assign and track work: a board by status, a list by due date, sub-tasks with owners, and live updates.',
+  title: 'Tasks', sub: 'Lead tasks and project tasks: a board by status, a list by due date, sub-tasks with owners, and live updates. Each project task shows its project.',
   actions: () => `<button class="btn primary" id="newtask">${svg('plus')} New task</button>`,
   render(el) {
     let openId = null;
-    if (ST.arg) { if (/^p-[0-9a-f-]{36}$/.test(ST.arg)) { TF.view = 'projects'; TF.proj = ST.arg.slice(2); } else if (ST.arg === 'projects') TF.view = 'projects'; else if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } ST.arg = null; }
+    if (ST.arg) { if (/^p-[0-9a-f-]{36}$/.test(ST.arg)) { TF.proj = ST.arg.slice(2); TF.kind = 'project'; TF.scope = 'team'; if (TF.view === 'projects') TF.view = 'list'; } else if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } ST.arg = null; }
     const today = todayStr(); const wkEnd = localDate(new Date(Date.now() + 7 * 864e5)); const doneSince = localDate(new Date(Date.now() - 30 * 864e5));
     const base = tasksFor(TF.scope).filter((t) => t.status !== 'Cancelled')
       .filter((t) => TF.kind === 'all' || (TF.kind === 'project') === isProjTask(t))
+      .filter((t) => !TF.proj || t.project_id === TF.proj)
       .filter((t) => !TF.pri || (t.priority || 'Normal') === TF.pri)
       .filter((t) => !TF.q || `${t.title} ${t.notes || ''} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()));
     const byDue = (a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')) || ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[a.priority || 'Normal'] - ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[b.priority || 'Normal'];
@@ -284,20 +287,21 @@ VIEWS.tasks = {
       ${taskOverview(base, { title: TF.scope === 'mine' ? 'My tasks' : TF.scope === 'given' ? 'Tasks I gave to others' : 'Team tasks', link: false })}
       <section class="glass panel tk-wrap">
         <div class="tk-bar">
-          ${TF.view === 'projects' ? '' : `<div class="seg">${[['mine', 'My tasks'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>`}
+          <div class="seg">${[['mine', 'My tasks'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
           <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
-          <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list'], ['projects', 'Projects', 'proj']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
+          <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
           <input type="search" id="tq" placeholder="Search tasks" value="${esc(TF.q)}">
           <select id="tpri" aria-label="Priority"><option value="">Any priority</option>${opts(TASK_PRI, TF.pri)}</select>
           <span class="faint tk-sum">${live.length} open · ${live.filter((t) => t.due_date && t.due_date < today).length} overdue</span>
         </div>
-        ${TF.view === 'projects' ? '<div id="ptbody"></div>' : TF.view === 'board' ? board() : `<div class="tk-list">${list()}</div>`}
+        ${TF.proj && DB.get('projects', TF.proj) ? `<div class="tk-pjf">${svg('proj')} Tasks of <b>${esc(DB.get('projects', TF.proj).name)}</b><button class="btn ghost small" id="tpjx">${svg('x')} Show all</button><a class="btn small" href="#projects/p-${TF.proj}">Project overview</a></div>` : ''}
+        ${TF.view === 'board' ? board() : `<div class="tk-list">${list()}</div>`}
       </section>`;
     const rer = () => this.render(el);
     el.querySelectorAll('[data-sc]').forEach((b) => (b.onclick = () => { TF.scope = b.dataset.sc; rer(); }));
-    el.querySelectorAll('[data-vw]').forEach((b) => (b.onclick = () => { TF.view = b.dataset.vw; if (TF.view === 'projects' && TF.kind === 'lead') TF.kind = 'all'; rer(); }));
-    el.querySelectorAll('[data-tkk]').forEach((b) => (b.onclick = () => { TF.kind = b.dataset.tkk; if (TF.kind === 'lead' && TF.view === 'projects') TF.view = 'list'; rer(); }));
-    if (TF.view === 'projects') ptRender(el.querySelector('#ptbody'), rer);
+    el.querySelectorAll('[data-vw]').forEach((b) => (b.onclick = () => { TF.view = b.dataset.vw; rer(); }));
+    el.querySelectorAll('[data-tkk]').forEach((b) => (b.onclick = () => { TF.kind = b.dataset.tkk; if (TF.kind === 'lead') TF.proj = ''; rer(); }));
+    el.querySelector('#tpjx')?.addEventListener('click', () => { TF.proj = ''; rer(); });
     el.querySelector('#tpri').onchange = (e) => { TF.pri = e.target.value; rer(); };
     el.querySelector('#tshowdone')?.addEventListener('click', () => { TF.showDone = !TF.showDone; rer(); });
     el.querySelector('#tq').oninput = (e) => { TF.q = e.target.value; clearTimeout(this._t); this._t = setTimeout(() => { rer(); const i = el.querySelector('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
