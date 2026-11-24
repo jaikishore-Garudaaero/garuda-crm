@@ -309,15 +309,30 @@ function newProjectModal(pre = {}) {
   m.el.querySelector('#pgo').onclick = () => guard(async () => { const n = v(m.el, 'pn').trim(); if (!n) throw new Error('Name the project'); const p = await DB.insert('projects', { name: n, dept: v(m.el, 'pd'), owner: v(m.el, 'po'), deal_owner: DB.me.id, institution_id: v(m.el, 'pa') || null, value: num(m.el, 'pv'), start_date: v(m.el, 'ps') || null, end_date: v(m.el, 'pe') || null, status: 'Not started' }); m.close(); openProject(p.id); }, 'Project created');
 }
 let projTab = 'plan';
+/* Super admin: delete a project, with or without its tasks */
+function deleteProject(p, after) {
+  const n = projTasks(p.id).length; const it = projItems(p.id); const paid = it.filter((i) => i.payment_id).length;
+  const m = openModal({ title: 'Delete project', width: 520,
+    body: `<p>Delete <b>${esc(p.name)}</b>? Its milestones and payment milestones (${it.length}) are deleted with it.${paid ? ` Payments already recorded (${paid}) stay in Revenue.` : ''}</p>
+      ${n ? `<div class="list">${[['del', `Delete its ${n} task${n === 1 ? '' : 's'} and their sub-tasks too`], ['keep', `Keep the ${n} task${n === 1 ? '' : 's'} as standalone tasks`]].map(([k, t], i) => `<label class="item"><input type="radio" name="pdk" value="${k}" ${i ? '' : 'checked'}> <span class="grow">${t}</span></label>`).join('')}</div>` : ''}
+      <p class="faint" style="font-size:12.5px">This cannot be undone from the CRM. A full copy stays in the Activity log.</p>`,
+    foot: '<button class="btn" data-c>Cancel</button><button class="btn danger" id="pdgo">Delete project</button>' });
+  m.el.querySelector('#pdgo').onclick = () => guard(async () => {
+    const keep = m.el.querySelector('input[name="pdk"]:checked')?.value === 'keep';
+    await DB.call('delete_project', { p_id: p.id, p_keep_tasks: keep }, ['projects', 'project_items', 'work_tasks', 'work_subtasks']);
+    m.close(); after?.();
+  }, 'Project deleted');
+}
 function openProject(id) {
   openDrawer((ctx) => {
     const p = DB.get('projects', id); if (!p) return ctx.close();
     const it = projItems(id).sort((a, b) => String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')));
     const l = p.lead_id && DB.get('leads', p.lead_id);
     const paid = sum(it.filter((i) => i.kind === 'payment' && i.status === 'Collected'), (i) => i.amount), sched = sum(it.filter((i) => i.kind === 'payment' && i.status !== 'Cancelled'), (i) => i.amount);
-    ctx.el.innerHTML = `<div class="drawer-head"><div><div class="row">${deptChip(p.dept)}<span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></div><h2 style="margin-top:6px">${esc(p.name)}</h2><div class="faint" style="font-size:12.5px">${inr(p.value)} · owner ${esc(DB.pname(p.owner))} · deal by ${esc(DB.pname(p.deal_owner))}${l ? ` · <a href="#" id="pdeal">open the deal</a>` : ''}</div></div><button class="btn ghost small" data-close>${svg('x')}</button></div>
+    ctx.el.innerHTML = `<div class="drawer-head"><div><div class="row">${deptChip(p.dept)}<span class="chip ${PROJ_CLS[p.status] || ''}">${esc(p.status)}</span></div><h2 style="margin-top:6px">${esc(p.name)}</h2><div class="faint" style="font-size:12.5px">${inr(p.value)} · owner ${esc(DB.pname(p.owner))} · deal by ${esc(DB.pname(p.deal_owner))}${l ? ` · <a href="#" id="pdeal">open the deal</a>` : ''}</div></div><div class="row" style="gap:6px">${isSuper() ? `<button class="btn ghost small" id="pdel" title="Delete project" aria-label="Delete project">${svg('trash')}</button>` : ''}<button class="btn ghost small" data-close>${svg('x')}</button></div></div>
       <div class="tabs">${[['plan', `Milestones & tasks (${it.filter((i) => i.kind !== 'payment').length + projTasks(id).length})`], ['pay', `Payment milestones (${it.filter((i) => i.kind === 'payment').length})`], ['details', 'Details & documents']].map(([k, t]) => `<button data-t="${k}" aria-selected="${projTab === k}">${t}</button>`).join('')}</div><div class="drawer-body" id="pb"></div>`;
     ctx.el.querySelector('[data-close]').onclick = ctx.close;
+    ctx.el.querySelector('#pdel')?.addEventListener('click', () => deleteProject(p, () => ctx.close()));
     ctx.el.querySelector('#pdeal')?.addEventListener('click', (e) => { e.preventDefault(); openLead(l.id); });
     ctx.el.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { projTab = b.dataset.t; ctx.render(); }));
     const b = ctx.el.querySelector('#pb');
