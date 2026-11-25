@@ -365,7 +365,8 @@ function openProject(id) {
       if (!pay) bindProjectBlock(b, p, () => ctx.render());
       b.querySelector('#pjde')?.addEventListener('click', () => { const m = openModal({ title: 'Project description', width: 560, body: `<textarea id="pjdt" rows="8" style="width:100%" placeholder="What this project is, its goal, scope and what done looks like">${esc(p.notes || '')}</textarea>`, foot: '<button class="btn" data-c>Cancel</button><button class="btn primary" id="pjds">Save</button>' });
         m.el.querySelector('#pjds').onclick = () => guard(async () => { await DB.update('projects', p.id, { notes: m.el.querySelector('#pjdt').value.trim() || null }); m.close(); ctx.render(); }, 'Description saved'); });
-      b.querySelector('#iadd').onclick = () => guard(async () => { const n = v(b, 'in').trim(); if (!n) throw new Error('Enter the name'); await DB.insert('project_items', { project_id: id, kind: pay ? 'payment' : v(b, 'ik'), name: n, amount: pay ? num(b, 'ia') : 0, due_date: v(b, 'id') || null, owner: v(b, 'io') || null, status: 'Open' }); ctx.render(); }, 'Added');
+      b.querySelector('#iadd').onclick = () => guard(async () => { const n = v(b, 'in').trim(); if (!n) throw new Error('Enter the name'); if (!pay && v(b, 'ik') === 'task') await DB.insert('work_tasks', { title: n, project_id: id, due_date: v(b, 'id') || null, owner: v(b, 'io') || DB.me.id, created_by: DB.me.id, status: 'Open', priority: 'Normal', start_date: todayStr() });
+        else await DB.insert('project_items', { project_id: id, kind: pay ? 'payment' : v(b, 'ik'), name: n, amount: pay ? num(b, 'ia') : 0, due_date: v(b, 'id') || null, owner: v(b, 'io') || null, status: 'Open' }); ctx.render(); }, 'Added');
     }
   });
 }
