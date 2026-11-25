@@ -146,7 +146,7 @@ function tkCard(t) {
     <div class="tk-top">${priFlag(t.priority)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
     <b class="tk-title">${esc(t.title)}</b>
     ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
-    <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Updates">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
+    <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Remarks">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
       ${t.created_by && t.created_by !== t.owner ? `<span class="tk-from" title="Given by ${esc(DB.pname(t.created_by))}">${avHTML(t.created_by, 'xs')}${svg('chevr')}</span>` : ''}${avHTML(t.owner)}</div>
   </article>`;
 }
@@ -225,8 +225,8 @@ function taskDrawer(id, after) {
           <input type="date" class="tkd-sdd" data-sdd="${x.id}" value="${esc(x.due_date || '')}" aria-label="Sub-task due date">
           <button class="btn ghost small" data-sdel="${x.id}" aria-label="Delete sub-task">${svg('x')}</button></li>`).join('')}
         <li class="tkd-add"><span class="tk-check add">${svg('plus')}</span><input id="sadd" class="grow" placeholder="Add a sub-task and press Enter"><select id="saddo" aria-label="Owner">${pOpts('', 'Unassigned')}</select></li></ul>
-      <h3 class="tkd-h">Updates</h3>
-      <div class="row tkd-cm"><input id="tku" class="grow" placeholder="Write an update or comment"><button class="btn small primary" id="tkugo">Post</button></div>
+      <h3 class="tkd-h">Remarks <span class="faint">${(t.updates || []).length}</span></h3>
+      <div class="row tkd-cm"><input id="tku" class="grow" placeholder="Write a remark: progress, a call, a blocker…"><button class="btn small primary" id="tkugo">Add remark</button></div>
       <ul class="feed">${(t.updates || []).slice().reverse().map((u) => `<li><span class="av sm" style="background:${personColor(u.by)}">${esc(initials(DB.pname(u.by)))}</span><div><b>${esc(DB.pname(u.by))}</b> ${esc(u.text)}<span class="s">${fmtDT(u.at)}</span></div></li>`).join('') || '<li class="faint">No updates yet.</li>'}</ul>
       ${canDel ? '<div class="tkd-foot"><button class="btn danger small" id="tkdel">Delete task</button></div>' : ''}
     </div>`;
@@ -254,7 +254,7 @@ function taskDrawer(id, after) {
     const sa = el.querySelector('#sadd');
     sa.onkeydown = (e) => { if (e.key !== 'Enter' || !sa.value.trim()) return; const title = sa.value.trim(); const ow = v(el, 'saddo') || null;
       guard(async () => { await DB.insert('work_subtasks', { task_id: t.id, title, owner: ow, ord: subs.length + 1 }); DB.t.work_tasks = await DB.fetchAll('work_tasks'); re(); setTimeout(() => ctx.el.querySelector('#sadd')?.focus(), 30); }); };
-    const post = () => { const text = v(el, 'tku').trim(); if (!text) return; save({ updates: [...(t.updates || []), { at: nowISO(), by: DB.me.id, text }] }, 'Posted'); };
+    const post = () => { const text = v(el, 'tku').trim(); if (!text) return; save({ updates: [...(t.updates || []), { at: nowISO(), by: DB.me.id, text }] }, 'Remark added'); };
     el.querySelector('#tkugo').onclick = post; el.querySelector('#tku').onkeydown = (e) => { if (e.key === 'Enter') post(); };
     el.querySelector('#tkdel')?.addEventListener('click', () => guard(async () => { if (!(await confirmBox('Delete this task and its sub-tasks?', 'Delete'))) return; await DB.remove('work_tasks', t.id); ctx.close(); done(); }, 'Deleted'));
     bindLeadClicks(el);
