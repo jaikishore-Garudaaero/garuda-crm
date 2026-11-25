@@ -74,7 +74,9 @@ function taskModal(t = {}, after) {
       <div class="full" id="tlinkf" ${t.project_id || (t.recur && !t.lead_id && !t.institution_id) ? 'hidden' : ''}>${fld('tlink', 'Lead, deal or account', recordPicker('tlink', t))}</div>
       <div class="full" id="tprojf" ${t.project_id ? '' : 'hidden'}>${fld('tproj', 'Project', `<select id="tproj">${opts(ptProjects().map((p) => [p.id, (p.project_code ? p.project_code + ' · ' : '') + p.name]), t.project_id || '', 'Choose a project')}</select>`)}</div>
       ${fld('tsd', 'Start date', inp('tsd', t.start_date || '', 'date'))}
-      ${fld('to', 'Assign to', `<select id="to">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Myself (${p.full_name})` : `${p.full_name}${p.designation ? ' · ' + p.designation : ''}`]), t.owner || lead?.owner || DB.me.id)}</select>`)}${fld('td', 'Due date', inp('td', t.due_date || '', 'date'))}
+      ${fld('tow', 'Owner (oversees it)', `<select id="tow">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Me (${p.full_name})` : p.full_name]), t.task_owner || DB.me.id)}</select>`)}
+      ${fld('tmg', 'Manager (chooses who does it)', `<select id="tmg">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Me (${p.full_name})` : `${p.full_name}${p.designation ? ' · ' + p.designation : ''}`]), t.manager || '', 'No manager')}</select>`)}
+      ${fld('to', 'Assignee (does the work)', `<select id="to">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Myself (${p.full_name})` : `${p.full_name}${p.designation ? ' · ' + p.designation : ''}`]), t.owner || lead?.owner || DB.me.id)}</select>`)}${fld('td', 'Due date', inp('td', t.due_date || '', 'date'))}
       ${fld('trec', 'Repeat', sel('trec', RECUR, t.recur || ''))}${fld('trt', 'Remind at (India time)', inp('trt', t.remind_time ? String(t.remind_time).slice(0, 5) : '', 'time'))}
       <label class="check full"><input type="checkbox" id="trem" ${t.remind_email ? 'checked' : ''}> Also send the reminder by email</label>
       ${fld('tp', 'Priority', sel('tp', TASK_PRI, t.priority || 'Normal'))}${isNew ? '' : fld('ts', 'Status', sel('ts', ['Open', 'In progress', 'Done', 'Cancelled'], t.status))}
@@ -92,7 +94,7 @@ function taskModal(t = {}, after) {
     const recur = v(m.el, 'trec') || null; const remind_time = v(m.el, 'trt') || null;
     if (recur && !v(m.el, 'td')) m.el.querySelector('#td').value = todayStr();
     const project_id = proj ? v(m.el, 'tproj') || null : null; if (proj && !project_id) throw new Error('Choose the project.');
-    const row = { title, project_id, recur, remind_time, remind_email: m.el.querySelector('#trem').checked, start_date: v(m.el, 'tsd') || (recur ? todayStr() : null), lead_id: link.lead_id, institution_id: link.institution_id, owner: v(m.el, 'to'), due_date: v(m.el, 'td') || null, priority: v(m.el, 'tp'), notes: v(m.el, 'tn') };
+    const row = { title, task_owner: v(m.el, 'tow') || DB.me.id, manager: v(m.el, 'tmg') || null, project_id, recur, remind_time, remind_email: m.el.querySelector('#trem').checked, start_date: v(m.el, 'tsd') || (recur ? todayStr() : null), lead_id: link.lead_id, institution_id: link.institution_id, owner: v(m.el, 'to'), due_date: v(m.el, 'td') || null, priority: v(m.el, 'tp'), notes: v(m.el, 'tn') };
     if (isNew) {
       const nt = await DB.insert('work_tasks', { ...row, created_by: DB.me.id });
       const lines = v(m.el, 'tsubs').split('\n').map((x) => x.trim()).filter(Boolean);
@@ -132,10 +134,16 @@ function scopedTasks() {
 }
 /* tasks I own, tasks with a sub-task on my name, tasks I gave others, or everything in my scope */
 const subOwners = (id) => new Set(taskSubs(id).map((x) => x.owner).filter(Boolean));
+/* who may change the roles on a task: the owner picks the manager, the manager (or owner) picks the assignee */
+const isHeadish = () => ['clevel', 'admin'].includes(DB.me?.role) || (typeof isSuper === 'function' && isSuper());
+const canSetManager = (t) => isHeadish() || !t.id || [t.task_owner, t.created_by].includes(DB.me.id) || !t.task_owner;
+const canSetAssignee = (t) => isHeadish() || !t.id || [t.manager, t.task_owner, t.created_by].includes(DB.me.id) || (!t.manager && t.owner === DB.me.id) || canReassign();
+const rolesLine = (t) => `<span class="tk-roles" title="Owner → Manager → Assignee">${avHTML(t.task_owner || t.created_by, 'xs')}${t.manager ? `<i>›</i>${avHTML(t.manager, 'xs')}` : ''}<i>›</i>${avHTML(t.owner, 'xs')}</span>`;
 function tasksFor(scope) {
   const me = DB.me.id; const all = scopedTasks();
   if (scope === 'mine') return all.filter((t) => t.owner === me || subOwners(t.id).has(me));
   if (scope === 'given') return all.filter((t) => t.created_by === me && t.owner !== me);
+  if (scope === 'oversee') return all.filter((t) => (t.task_owner === me || t.manager === me) && t.owner !== me);
   return all;
 }
 const avHTML = (pid, cls = 'sm') => (pid ? `<span class="av ${cls}" style="background:${personColor(pid)}" title="${esc(DB.pname(pid))}">${esc(initials(DB.pname(pid)))}</span>` : `<span class="av ${cls} none" title="Unassigned">?</span>`);
@@ -155,7 +163,7 @@ function tkCard(t) {
     <b class="tk-title">${esc(t.title)}</b>
     ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
     <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Remarks">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
-      ${t.created_by && t.created_by !== t.owner ? `<span class="tk-from" title="Given by ${esc(DB.pname(t.created_by))}">${avHTML(t.created_by, 'xs')}${svg('chevr')}</span>` : ''}${avHTML(t.owner)}</div>
+      ${(t.task_owner || t.created_by) !== t.owner || t.manager ? rolesLine(t) : avHTML(t.owner)}</div>
   </article>`;
 }
 function tkRow(t) {
@@ -165,7 +173,7 @@ function tkRow(t) {
     <span class="tk-rt"><b>${esc(t.title)} ${recurChip(t)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
     <span class="tk-rs">${subs.length ? `<span class="tk-cnt">${svg('check')} ${done}/${subs.length}</span>` : ''}</span>
     <span class="tk-rs">${t.status === 'In progress' ? '<span class="chip tone warn">In progress</span>' : ''}</span>
-    <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${avHTML(t.owner)}
+    <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${(t.task_owner || t.created_by) !== t.owner || t.manager ? rolesLine(t) : avHTML(t.owner)}
   </div>`;
 }
 /* the overview used on My dashboard and the Task Dashboard */
@@ -214,7 +222,9 @@ function taskDrawer(id, after) {
       <div class="seg tkd-st">${[...TSTAT, ['Cancelled', 'Cancelled', 'mute']].map(([k, w]) => `<button data-st="${k}" aria-pressed="${t.status === k}">${w}</button>`).join('')}</div>
       <textarea id="tkt" class="tkd-title" rows="1" aria-label="Task name">${esc(t.title)}</textarea>
       <div class="tkd-f">
-        <label>Assignee</label><select id="tko">${pOpts(t.owner)}</select>
+        <label>Owner</label><select id="tkow" ${t.task_owner && ![t.task_owner, t.created_by].includes(DB.me.id) && !isHeadish() ? 'disabled' : ''} title="Oversees the task">${pOpts(t.task_owner || t.created_by)}</select>
+        <label>Manager</label><select id="tkmg" ${canSetManager(t) ? '' : 'disabled'} title="Chooses who does it">${pOpts(t.manager || '', 'No manager')}</select>
+        <label>Assignee</label><select id="tko" ${canSetAssignee(t) ? '' : 'disabled'} title="Does the work">${pOpts(t.owner)}</select>
         <label>Project</label><select id="tkpj">${opts(ptProjects(t.project_id).map((p) => [p.id, p.name]), t.project_id || '', 'None (lead task)')}</select>
         <label>Start date</label><input type="date" id="tksd" value="${esc(t.start_date || '')}">
         <label>Due date</label><input type="date" id="tkdd" value="${esc(t.due_date || '')}">
@@ -249,6 +259,8 @@ function taskDrawer(id, after) {
     ti.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ti.blur(); } };
     ti.onblur = () => { const v0 = ti.value.trim(); if (v0 && v0 !== t.title) save({ title: v0 }, 'Saved'); };
     el.querySelector('#tko').onchange = (e) => save({ owner: e.target.value }, 'Assigned to ' + DB.pname(e.target.value));
+    el.querySelector('#tkow').onchange = (e) => save({ task_owner: e.target.value }, 'Owner: ' + DB.pname(e.target.value));
+    el.querySelector('#tkmg').onchange = (e) => save({ manager: e.target.value || null }, e.target.value ? 'Manager: ' + DB.pname(e.target.value) : 'Manager removed');
     el.querySelector('#tkdd').onchange = (e) => save({ due_date: e.target.value || null });
     el.querySelector('#tkrec').onchange = (e) => save({ recur: e.target.value || null, ...(e.target.value && !t.due_date ? { due_date: todayStr() } : {}) }, e.target.value ? 'Repeats ' + RECUR_SHORT[e.target.value].toLowerCase() : 'No longer repeats');
     el.querySelector('#tkrt').onchange = (e) => save({ remind_time: e.target.value || null, last_reminded_on: null }, e.target.value ? 'Reminder at ' + e.target.value : 'Reminder removed');
@@ -288,7 +300,7 @@ VIEWS.tasks = {
       .filter((t) => !TF.q || `${t.title} ${t.notes || ''} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()));
     const byDue = (a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')) || ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[a.priority || 'Normal'] - ({ Urgent: 0, High: 1, Normal: 2, Low: 3 })[b.priority || 'Normal'];
     const doneOk = (t) => TF.showDone || String(t.done_at || t.updated_at || '').slice(0, 10) >= doneSince;
-    const cnt = { mine: tasksFor('mine'), given: tasksFor('given'), team: tasksFor('team') };
+    const cnt = { mine: tasksFor('mine'), oversee: tasksFor('oversee'), given: tasksFor('given'), team: tasksFor('team') };
     const live = base.filter(taskOpen);
     const board = () => `<div class="tk-board">${TSTAT.map(([k, w, tone]) => { const col = base.filter((t) => t.status === k && (k !== 'Done' || doneOk(t))).sort(k === 'Done' ? (a, b) => String(b.done_at || '').localeCompare(String(a.done_at || '')) : byDue);
       return `<section class="tk-col" data-col="${k}"><div class="tk-colh"><span class="dot ${tone}"></span><b>${w}</b><span class="faint">${col.length}</span><span class="grow"></span>${k !== 'Done' ? `<button class="btn ghost small" data-qadd="${k}" aria-label="Add to ${w}">${svg('plus')}</button>` : `<button class="lnk small" id="tshowdone">${TF.showDone ? 'Last 30 days only' : 'Show all'}</button>`}</div>
@@ -300,7 +312,7 @@ VIEWS.tasks = {
       ${taskOverview(base, { title: TF.scope === 'mine' ? 'My tasks' : TF.scope === 'given' ? 'Tasks I gave to others' : 'Team tasks', link: false })}
       <section class="glass panel tk-wrap">
         <div class="tk-bar">
-          <div class="seg">${[['mine', 'My tasks'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
+          <div class="seg">${[['mine', 'My tasks'], ['oversee', 'I own / manage'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
           <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['routine', 'Routines'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
           <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
           <input type="search" id="tq" placeholder="Search tasks" value="${esc(TF.q)}">
