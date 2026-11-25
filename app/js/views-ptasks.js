@@ -86,7 +86,7 @@ function ptTree(box, projects, { sel = '', onSel, rer } = {}) {
   const stChip = (t) => { const tone = t.status === 'Done' ? 'good' : t.status === 'In progress' ? 'warn' : taskOpen(t) && t.due_date && t.due_date < today ? 'bad' : 'info'; return `<span class="chip tone ${tone}">${t.status === 'Open' ? (tone === 'bad' ? 'Overdue' : 'To do') : esc(t.status)}</span>`; };
   const who = (pid) => (pid ? `<span class="pt-who">${avHTML(pid, 'xs')}<span>${esc(DB.pname(pid))}</span></span>` : '<span class="faint">Unassigned</span>');
   const rows = tree.map((p) => {
-    const g = projProgress(p); const [hw, ht] = projHealth(p, g); const open = !PTS.closed.has(p.id) || !!sel1;
+    const g = projProgress(p); const [hw, ht] = projHealth(p, g); const open = !PTS.closed.has(p.id);
     const ts = projTasks(p.id).filter(taskShown).sort((a, b) => String(a.start_date || a.due_date || '9').localeCompare(String(b.start_date || b.due_date || '9')) || String(a.created_at).localeCompare(String(b.created_at)));
     const end = p.end_date || p.target_date;
     let h = `<tr class="pt-p" style="--dc:${esc(projColor(p))}"><td class="pt-n"><button class="pt-tg ${open ? 'on' : ''}" data-ptp="${p.id}" aria-label="${open ? 'Collapse' : 'Expand'}">${svg('chevr')}</button><span class="pt-sw"></span><a href="#" data-ptpj="${p.id}"><b>${esc(p.name)}</b></a> <span class="faint">${g.tasks} task${g.tasks === 1 ? '' : 's'}</span></td>
@@ -108,7 +108,7 @@ function ptTree(box, projects, { sel = '', onSel, rer } = {}) {
   box.querySelector('#ptx')?.addEventListener('click', () => onSel?.(''));
   const qi = box.querySelector('#ptq'); qi.oninput = () => { PTS.q = qi.value; clearTimeout(ptTree._t); ptTree._t = setTimeout(() => { rer(); const i = document.querySelector('#ptq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 300); };
   box.querySelector('#ptexp').onclick = () => { PTS.closed.clear(); tree.forEach((p) => projTasks(p.id).forEach((t) => PTS.topen.add(t.id))); rer(); };
-  box.querySelector('#ptcol').onclick = () => { PTS.topen.clear(); if (!sel1) tree.forEach((p) => PTS.closed.add(p.id)); rer(); };
+  box.querySelector('#ptcol').onclick = () => { PTS.topen.clear(); tree.forEach((p) => PTS.closed.add(p.id)); rer(); };
   box.querySelectorAll('[data-ptp]').forEach((b) => (b.onclick = () => { const id = b.dataset.ptp; if (PTS.closed.has(id)) PTS.closed.delete(id); else PTS.closed.add(id); rer(); }));
   box.querySelectorAll('[data-ptt]').forEach((b) => (b.onclick = () => { const id = b.dataset.ptt; if (PTS.topen.has(id)) PTS.topen.delete(id); else PTS.topen.add(id); rer(); }));
   box.querySelectorAll('[data-ptpj]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); openProject(a.dataset.ptpj); }));
