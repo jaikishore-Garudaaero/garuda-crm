@@ -312,6 +312,31 @@ function newProjectModal(pre = {}) {
   m.el.querySelector('#pgo').onclick = () => guard(async () => { const n = v(m.el, 'pn').trim(); if (!n) throw new Error('Name the project'); const ty = projTypeVal(m.el); const p = await DB.insert('projects', { name: n, ...ty, owner: v(m.el, 'po'), deal_owner: ty.lead_id ? DB.get('leads', ty.lead_id)?.owner || DB.me.id : DB.me.id, value: num(m.el, 'pv'), start_date: v(m.el, 'ps') || null, end_date: v(m.el, 'pe') || null, notes: v(m.el, 'pdesc').trim() || null, status: 'Not started' }); m.close(); openProject(p.id); }, 'Project created');
 }
 let projTab = 'plan';
+/* fix a milestone (or payment milestone) added by mistake: rename, re-date, change owner, turn it into a task, or delete it */
+function editProjectItem(i, after) {
+  if (!i) return;
+  const pay = i.kind === 'payment'; const locked = !!i.payment_id;
+  const m = openModal({ title: pay ? 'Edit payment milestone' : 'Edit milestone', width: 560,
+    body: `<div class="form">${pay ? '' : fld('ek', 'Type', `<div class="seg" id="ek">${[['milestone', 'Milestone'], ['task', 'Task (move to project tasks)']].map(([k, w]) => `<button type="button" data-ek="${k}" aria-pressed="${k === 'milestone'}">${w}</button>`).join('')}</div>`, 'full')}
+      ${fld('enm', 'Name', inp('enm', i.name), 'full')}${pay ? fld('eam', 'Amount ex-GST (₹)', inp('eam', i.amount || '', 'number')) : ''}
+      ${fld('edd', 'Due', inp('edd', i.due_date || '', 'date'))}${fld('eow', 'Owner', `<select id="eow">${opts([...scopePeople()].map((x) => [x.id, x.full_name]), i.owner, 'Unassigned')}</select>`)}</div>
+      ${locked ? '<p class="faint" style="font-size:12.5px">A payment is already recorded against this milestone, so only its name and owner can change.</p>' : ''}`,
+    foot: `${locked ? '' : '<button class="btn danger" id="edel">Delete</button>'}<span class="grow"></span><button class="btn" data-c>Cancel</button><button class="btn primary" id="esave">Save</button>` });
+  if (locked) { const a = m.el.querySelector('#eam'); if (a) a.disabled = true; m.el.querySelector('#edd').disabled = true; }
+  m.el.querySelectorAll('[data-ek]').forEach((x) => (x.onclick = () => m.el.querySelectorAll('[data-ek]').forEach((y) => y.setAttribute('aria-pressed', y === x))));
+  m.el.querySelector('#esave').onclick = () => guard(async () => {
+    const name = v(m.el, 'enm').trim(); if (!name) throw new Error('Enter the name');
+    const toTask = !pay && m.el.querySelector('[data-ek="task"]')?.getAttribute('aria-pressed') === 'true';
+    if (toTask) {
+      await DB.insert('work_tasks', { title: name, project_id: i.project_id, owner: v(m.el, 'eow') || DB.me.id, created_by: DB.me.id, due_date: v(m.el, 'edd') || null, start_date: todayStr(), priority: 'Normal', status: i.status === 'Done' ? 'Done' : 'Open' });
+      await DB.remove('project_items', i.id);
+    } else {
+      await DB.update('project_items', i.id, { name, owner: v(m.el, 'eow') || null, ...(locked ? {} : { due_date: v(m.el, 'edd') || null, ...(pay ? { amount: num(m.el, 'eam') } : {}) }) });
+    }
+    m.close(); after?.();
+  }, 'Saved');
+  m.el.querySelector('#edel')?.addEventListener('click', () => guard(async () => { if (!(await confirmBox(`Delete "${i.name}"?`, 'Delete'))) return; await DB.remove('project_items', i.id); m.close(); after?.(); }, 'Deleted'));
+}
 /* Super admin: delete a project, with or without its tasks */
 function deleteProject(p, after) {
   const n = projTasks(p.id).length; const it = projItems(p.id); const paid = it.filter((i) => i.payment_id).length;
@@ -355,14 +380,15 @@ function openProject(id) {
     } else {
       const pay = projTab === 'pay'; const list = it.filter((i) => (i.kind === 'payment') === pay);
       b.innerHTML = `${pay ? '' : `<section class="pj-desc"><div class="row between"><b>About this project</b><button class="btn ghost small" id="pjde">${p.notes ? 'Edit' : 'Add description'}</button></div>${p.notes ? `<p>${esc(p.notes).replace(/\n/g, '<br>')}</p>` : '<p class="faint">No description yet. Add what this project is, its goal and scope.</p>'}</section>${ptProjectBlock(p)}`}${pay ? `<div class="kpis">${kpi({ label: 'Scheduled', value: inr(sched), sub: `of ${inr(p.value)} project value` })}${kpi({ label: 'Collected', value: inr(paid), sub: 'Sent to Finance to verify' })}${kpi({ label: 'Still to collect', value: inr(sched - paid), sub: 'Feeds receivables' })}</div>` : ''}
-        <div class="tablewrap"><table><thead><tr><th>${pay ? 'Payment milestone' : 'Milestone / task'}</th>${pay ? '<th class="n">Amount ex-GST</th>' : '<th>Type</th>'}<th>Due</th><th>Owner</th><th>Status</th></tr></thead><tbody>
-        ${list.map((i) => `<tr><td>${esc(i.name)}${i.payment_id ? ' <span class="chip good">payment recorded</span>' : ''}</td>${pay ? `<td class="n">${inrFull(i.amount)}</td>` : `<td>${i.kind === 'milestone' ? 'Milestone' : 'Task'}</td>`}<td>${i.due_date ? `<span class="${i.due_date < todayStr() && !['Done', 'Collected', 'Cancelled'].includes(i.status) ? 'chip bad' : ''}">${fmtDate(i.due_date)}</span>` : '—'}</td><td>${esc(DB.pname(i.owner))}</td><td><select data-ist="${i.id}" aria-label="Status" ${i.payment_id ? 'disabled' : ''}>${opts(ITEM_STATUS[i.kind], i.status)}</select></td></tr>`).join('') || `<tr><td colspan="5" class="faint">Nothing yet.</td></tr>`}</tbody></table></div>
+        <div class="tablewrap"><table><thead><tr><th>${pay ? 'Payment milestone' : 'Milestone / task'}</th>${pay ? '<th class="n">Amount ex-GST</th>' : '<th>Type</th>'}<th>Due</th><th>Owner</th><th>Status</th><th></th></tr></thead><tbody>
+        ${list.map((i) => `<tr><td>${esc(i.name)}${i.payment_id ? ' <span class="chip good">payment recorded</span>' : ''}</td>${pay ? `<td class="n">${inrFull(i.amount)}</td>` : `<td>${i.kind === 'milestone' ? 'Milestone' : 'Task'}</td>`}<td>${i.due_date ? `<span class="${i.due_date < todayStr() && !['Done', 'Collected', 'Cancelled'].includes(i.status) ? 'chip bad' : ''}">${fmtDate(i.due_date)}</span>` : '—'}</td><td>${esc(DB.pname(i.owner))}</td><td><select data-ist="${i.id}" aria-label="Status" ${i.payment_id ? 'disabled' : ''}>${opts(ITEM_STATUS[i.kind], i.status)}</select></td><td class="n"><button class="btn ghost small" data-iedit="${i.id}" aria-label="Edit ${esc(i.name)}">Edit</button></td></tr>`).join('') || `<tr><td colspan="6" class="faint">Nothing yet.</td></tr>`}</tbody></table></div>
         <div class="glass panel" style="padding:12px;margin-top:10px"><div class="form three">
           ${pay ? '' : fld('ik', 'Type', sel('ik', [['milestone', 'Milestone'], ['task', 'Task']], 'milestone'))}${fld('in', pay ? 'Payment milestone' : 'Name', inp('in', '', 'text', pay ? 'placeholder="e.g. Advance 40%"' : ''))}${pay ? fld('ia', 'Amount ex-GST (₹)', inp('ia', '', 'number')) : ''}${fld('id', 'Due', inp('id', '', 'date'))}${fld('io', 'Owner', `<select id="io">${opts([...scopePeople()].map((x) => [x.id, x.full_name]), p.owner)}</select>`)}
           <div class="field" style="justify-content:flex-end"><button class="btn primary" id="iadd">${svg('plus')} Add</button></div></div>
           ${pay ? '<p class="faint" style="font-size:12px;margin:6px 0 0">Mark a payment milestone Collected and it is sent to Finance as a payment on the deal. Once verified it reaches the revenue ledger.</p>' : ''}</div>`;
       b.querySelectorAll('[data-ist]').forEach((s0) => (s0.onchange = () => guard(async () => { if (s0.value === 'Collected' && !(await confirmBox('Mark this payment milestone collected? It goes to Finance for verification.', 'Mark collected'))) { s0.value = DB.get('project_items', s0.dataset.ist).status; return; } await DB.update('project_items', s0.dataset.ist, { status: s0.value, ...(['Done', 'Collected'].includes(s0.value) ? { done_at: nowISO() } : {}) }); if (s0.value === 'Collected') { DB.t.payments = await DB.fetchAll('payments'); } ctx.render(); }, 'Updated')));
       if (!pay) bindProjectBlock(b, p, () => ctx.render());
+      b.querySelectorAll('[data-iedit]').forEach((x) => (x.onclick = () => editProjectItem(DB.get('project_items', x.dataset.iedit), () => ctx.render())));
       b.querySelector('#pjde')?.addEventListener('click', () => { const m = openModal({ title: 'Project description', width: 560, body: `<textarea id="pjdt" rows="8" style="width:100%" placeholder="What this project is, its goal, scope and what done looks like">${esc(p.notes || '')}</textarea>`, foot: '<button class="btn" data-c>Cancel</button><button class="btn primary" id="pjds">Save</button>' });
         m.el.querySelector('#pjds').onclick = () => guard(async () => { await DB.update('projects', p.id, { notes: m.el.querySelector('#pjdt').value.trim() || null }); m.close(); ctx.render(); }, 'Description saved'); });
       b.querySelector('#iadd').onclick = () => guard(async () => { const n = v(b, 'in').trim(); if (!n) throw new Error('Enter the name'); if (!pay && v(b, 'ik') === 'task') await DB.insert('work_tasks', { title: n, project_id: id, due_date: v(b, 'id') || null, owner: v(b, 'io') || DB.me.id, created_by: DB.me.id, status: 'Open', priority: 'Normal', start_date: todayStr() });

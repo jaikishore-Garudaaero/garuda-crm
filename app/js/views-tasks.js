@@ -8,6 +8,9 @@ const taskSubs = (id) => DB.t.work_subtasks.filter((s) => s.task_id === id).sort
 /* progress: ticked sub-tasks, or the % set by hand when a task has no sub-tasks */
 function taskPct(t) { const s = taskSubs(t.id); if (t.status === 'Done') return 100; if (!s.length) return clamp(Number(t.progress) || 0, 0, 100); return Math.round((s.filter((x) => x.done).length / s.length) * 100); }
 const isProjTask = (t) => !!t.project_id;
+const RECUR = [['', 'Does not repeat'], ['daily', 'Every day'], ['weekdays', 'Every working day (Mon–Sat)'], ['weekly', 'Every week'], ['monthly', 'Every month']];
+const RECUR_SHORT = { daily: 'Daily', weekdays: 'Mon–Sat', weekly: 'Weekly', monthly: 'Monthly' };
+const recurChip = (t) => (t.recur ? `<span class="tk-rec" title="Repeats ${esc((RECUR.find((r) => r[0] === t.recur) || [])[1] || t.recur)}${t.remind_time ? ' · reminder at ' + String(t.remind_time).slice(0, 5) : ''}">${svg('repeat')} ${RECUR_SHORT[t.recur] || t.recur}</span>` : t.remind_time ? `<span class="tk-rec" title="Reminder">${svg('bell')} ${String(t.remind_time).slice(0, 5)}</span>` : '');
 const projBadge = (pj) => `<span class="tk-projb" style="--dc:${esc(typeof projColor === 'function' ? projColor(pj) : '#7b5cf0')}" title="Project">${svg('proj')} ${esc(pj.name)}</span>`;
 /* positive / alarming / negative */
 function taskTone(t) {
@@ -67,24 +70,29 @@ function taskModal(t = {}, after) {
   const m = openModal({ title: isNew ? 'New task' : esc(t.title), width: 720,
     body: `${isNew && taskTemplates().length ? `<div class="field"><label>Start from a template</label><div class="row">${taskTemplates().map((x, i) => `<button class="btn small" data-tpl="${i}">${esc(x.name)}</button>`).join('')}</div></div>` : ''}
       <div class="form">${fld('tt', 'Task', inp('tt', t.title || '', 'text', 'placeholder="e.g. MoU ready for signing"'), 'full')}
-      ${fld('tkind', 'Task type', `<div class="seg" id="tkind">${[['lead', 'Lead / deal / account task'], ['project', 'Project task']].map(([k, w]) => `<button type="button" data-tkind="${k}" aria-pressed="${(t.project_id ? 'project' : 'lead') === k}">${w}</button>`).join('')}</div>`, 'full')}
-      <div class="full" id="tlinkf" ${t.project_id ? 'hidden' : ''}>${fld('tlink', 'Lead, deal or account', recordPicker('tlink', t))}</div>
+      ${fld('tkind', 'Task type', `<div class="seg" id="tkind">${[['lead', 'Lead / deal / account task'], ['project', 'Project task'], ['general', 'Routine / general']].map(([k, w]) => `<button type="button" data-tkind="${k}" aria-pressed="${(t.project_id ? 'project' : t.recur && !t.lead_id && !t.institution_id ? 'general' : 'lead') === k}">${w}</button>`).join('')}</div>`, 'full')}
+      <div class="full" id="tlinkf" ${t.project_id || (t.recur && !t.lead_id && !t.institution_id) ? 'hidden' : ''}>${fld('tlink', 'Lead, deal or account', recordPicker('tlink', t))}</div>
       <div class="full" id="tprojf" ${t.project_id ? '' : 'hidden'}>${fld('tproj', 'Project', `<select id="tproj">${opts(ptProjects().map((p) => [p.id, (p.project_code ? p.project_code + ' · ' : '') + p.name]), t.project_id || '', 'Choose a project')}</select>`)}</div>
       ${fld('tsd', 'Start date', inp('tsd', t.start_date || '', 'date'))}
       ${fld('to', 'Assign to', `<select id="to">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Myself (${p.full_name})` : `${p.full_name}${p.designation ? ' · ' + p.designation : ''}`]), t.owner || lead?.owner || DB.me.id)}</select>`)}${fld('td', 'Due date', inp('td', t.due_date || '', 'date'))}
+      ${fld('trec', 'Repeat', sel('trec', RECUR, t.recur || ''))}${fld('trt', 'Remind at (India time)', inp('trt', t.remind_time ? String(t.remind_time).slice(0, 5) : '', 'time'))}
+      <label class="check full"><input type="checkbox" id="trem" ${t.remind_email ? 'checked' : ''}> Also send the reminder by email</label>
       ${fld('tp', 'Priority', sel('tp', TASK_PRI, t.priority || 'Normal'))}${isNew ? '' : fld('ts', 'Status', sel('ts', ['Open', 'In progress', 'Done', 'Cancelled'], t.status))}
       ${isNew ? fld('tsubs', 'Sub-tasks (one per line)', '<textarea id="tsubs" style="min-height:140px" placeholder="Draft the MoU&#10;Internal review&#10;Share with the client"></textarea>', 'full') : `<div class="full faint" style="font-size:12.5px">${subs.length} sub-tasks · tick them and add sub-tasks on the task itself.</div>`}
       ${fld('tn', 'Task description', `<textarea id="tn" rows="4" placeholder="What needs to be done, links, and what done looks like">${esc(t.notes || '')}</textarea>`, 'full')}</div>`,
     foot: `${!isNew && (t.created_by === DB.me.id || canReassign()) ? '<button class="btn danger" id="tdel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-c>Cancel</button><button class="btn primary" id="tsave">${isNew ? 'Create task' : 'Save'}</button>` });
   bindPicker(m.el, 'tlink');
-  m.el.querySelectorAll('[data-tkind]').forEach((b) => (b.onclick = () => { m.el.querySelectorAll('[data-tkind]').forEach((x) => x.setAttribute('aria-pressed', x === b)); m.el.querySelector('#tlinkf').hidden = b.dataset.tkind === 'project'; m.el.querySelector('#tprojf').hidden = b.dataset.tkind !== 'project'; }));
+  m.el.querySelectorAll('[data-tkind]').forEach((b) => (b.onclick = () => { m.el.querySelectorAll('[data-tkind]').forEach((x) => x.setAttribute('aria-pressed', x === b)); m.el.querySelector('#tlinkf').hidden = b.dataset.tkind !== 'lead'; m.el.querySelector('#tprojf').hidden = b.dataset.tkind !== 'project'; }));
   m.el.querySelectorAll('[data-tpl]').forEach((b) => (b.onclick = () => { const x = taskTemplates()[b.dataset.tpl]; if (!v(m.el, 'tt')) m.el.querySelector('#tt').value = x.name; m.el.querySelector('#tsubs').value = (x.items || []).join('\n'); }));
   m.el.querySelector('#tsave').onclick = () => guard(async () => {
     const title = v(m.el, 'tt').trim(); if (!title) throw new Error('Name the task.');
     const proj = m.el.querySelector('[data-tkind="project"]').getAttribute('aria-pressed') === 'true';
-    const link = proj ? { lead_id: null, institution_id: null } : pickerVal(m.el, 'tlink');
+    const general = m.el.querySelector('[data-tkind="general"]').getAttribute('aria-pressed') === 'true';
+    const link = proj || general ? { lead_id: null, institution_id: null } : pickerVal(m.el, 'tlink');
+    const recur = v(m.el, 'trec') || null; const remind_time = v(m.el, 'trt') || null;
+    if (recur && !v(m.el, 'td')) m.el.querySelector('#td').value = todayStr();
     const project_id = proj ? v(m.el, 'tproj') || null : null; if (proj && !project_id) throw new Error('Choose the project.');
-    const row = { title, project_id, start_date: v(m.el, 'tsd') || null, lead_id: link.lead_id, institution_id: link.institution_id, owner: v(m.el, 'to'), due_date: v(m.el, 'td') || null, priority: v(m.el, 'tp'), notes: v(m.el, 'tn') };
+    const row = { title, project_id, recur, remind_time, remind_email: m.el.querySelector('#trem').checked, start_date: v(m.el, 'tsd') || (recur ? todayStr() : null), lead_id: link.lead_id, institution_id: link.institution_id, owner: v(m.el, 'to'), due_date: v(m.el, 'td') || null, priority: v(m.el, 'tp'), notes: v(m.el, 'tn') };
     if (isNew) {
       const nt = await DB.insert('work_tasks', { ...row, created_by: DB.me.id });
       const lines = v(m.el, 'tsubs').split('\n').map((x) => x.trim()).filter(Boolean);
@@ -143,7 +151,7 @@ const priFlag = (p) => (p && p !== 'Normal' ? `<span class="tk-pri p-${p.toLower
 function tkCard(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t); const pct = taskPct(t);
   return `<article class="tk-card pri-${(t.priority || 'Normal').toLowerCase()} ${t.status === 'Done' ? 'is-done' : ''}" draggable="true" data-tk="${t.id}" tabindex="0" aria-label="${esc(t.title)}">
-    <div class="tk-top">${priFlag(t.priority)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
+    <div class="tk-top">${priFlag(t.priority)}${recurChip(t)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
     <b class="tk-title">${esc(t.title)}</b>
     ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
     <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Remarks">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
@@ -154,7 +162,7 @@ function tkRow(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t);
   return `<div class="tk-row ${t.status === 'Done' ? 'is-done' : ''}" data-tk="${t.id}" tabindex="0">
     <button class="tk-check ${t.status === 'Done' ? 'on' : ''}" data-tkdone="${t.id}" aria-label="${t.status === 'Done' ? 'Mark not done' : 'Mark done'}">${svg('check')}</button>
-    <span class="tk-rt"><b>${esc(t.title)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
+    <span class="tk-rt"><b>${esc(t.title)} ${recurChip(t)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
     <span class="tk-rs">${subs.length ? `<span class="tk-cnt">${svg('check')} ${done}/${subs.length}</span>` : ''}</span>
     <span class="tk-rs">${t.status === 'In progress' ? '<span class="chip tone warn">In progress</span>' : ''}</span>
     <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${avHTML(t.owner)}
@@ -211,6 +219,8 @@ function taskDrawer(id, after) {
         <label>Start date</label><input type="date" id="tksd" value="${esc(t.start_date || '')}">
         <label>Due date</label><input type="date" id="tkdd" value="${esc(t.due_date || '')}">
         <label>Priority</label><select id="tkp">${opts(TASK_PRI, t.priority || 'Normal')}</select>
+        <label>Repeat</label><select id="tkrec">${opts(RECUR, t.recur || '')}</select>
+        <label>Remind at</label><span class="tkd-v"><input type="time" id="tkrt" value="${esc(t.remind_time ? String(t.remind_time).slice(0, 5) : '')}"><label class="check"><input type="checkbox" id="tkrem" ${t.remind_email ? 'checked' : ''}> email too</label></span>
         <label>Given by</label><span class="tkd-v">${avHTML(t.created_by)} ${esc(DB.pname(t.created_by))} · ${fmtDT(t.created_at)}</span>
       </div>
       <label class="tkd-l">Description</label><textarea id="tkn" class="tkd-desc" placeholder="Add details, links, what done looks like">${esc(t.notes || '')}</textarea>
@@ -240,6 +250,9 @@ function taskDrawer(id, after) {
     ti.onblur = () => { const v0 = ti.value.trim(); if (v0 && v0 !== t.title) save({ title: v0 }, 'Saved'); };
     el.querySelector('#tko').onchange = (e) => save({ owner: e.target.value }, 'Assigned to ' + DB.pname(e.target.value));
     el.querySelector('#tkdd').onchange = (e) => save({ due_date: e.target.value || null });
+    el.querySelector('#tkrec').onchange = (e) => save({ recur: e.target.value || null, ...(e.target.value && !t.due_date ? { due_date: todayStr() } : {}) }, e.target.value ? 'Repeats ' + RECUR_SHORT[e.target.value].toLowerCase() : 'No longer repeats');
+    el.querySelector('#tkrt').onchange = (e) => save({ remind_time: e.target.value || null, last_reminded_on: null }, e.target.value ? 'Reminder at ' + e.target.value : 'Reminder removed');
+    el.querySelector('#tkrem').onchange = (e) => save({ remind_email: e.target.checked }, e.target.checked ? 'Email reminder on' : 'Email reminder off');
     el.querySelector('#tksd').onchange = (e) => save({ start_date: e.target.value || null });
     el.querySelector('#tkpj').onchange = (e) => save(e.target.value ? { project_id: e.target.value, lead_id: null, institution_id: null } : { project_id: null }, e.target.value ? 'Moved to the project' : 'Saved');
     const pr = el.querySelector('#tkpr'); if (pr) { pr.oninput = () => { el.querySelector('#tkpro').textContent = pr.value + '%'; }; pr.onchange = () => { const n = Number(pr.value); save({ progress: n, ...(n === 100 && t.status !== 'Done' ? { status: 'Done' } : n > 0 && t.status === 'Open' ? { status: 'In progress' } : {}) }, 'Progress ' + n + '%'); }; }
@@ -269,7 +282,7 @@ VIEWS.tasks = {
     if (ST.arg) { if (/^p-[0-9a-f-]{36}$/.test(ST.arg)) { TF.proj = ST.arg.slice(2); TF.kind = 'project'; TF.scope = 'team'; if (TF.view === 'projects') TF.view = 'list'; } else if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } ST.arg = null; }
     const today = todayStr(); const wkEnd = localDate(new Date(Date.now() + 7 * 864e5)); const doneSince = localDate(new Date(Date.now() - 30 * 864e5));
     const base = tasksFor(TF.scope).filter((t) => t.status !== 'Cancelled')
-      .filter((t) => TF.kind === 'all' || (TF.kind === 'project') === isProjTask(t))
+      .filter((t) => TF.kind === 'all' || (TF.kind === 'routine' ? !!t.recur : (TF.kind === 'project') === isProjTask(t)))
       .filter((t) => !TF.proj || t.project_id === TF.proj)
       .filter((t) => !TF.pri || (t.priority || 'Normal') === TF.pri)
       .filter((t) => !TF.q || `${t.title} ${t.notes || ''} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()));
@@ -288,7 +301,7 @@ VIEWS.tasks = {
       <section class="glass panel tk-wrap">
         <div class="tk-bar">
           <div class="seg">${[['mine', 'My tasks'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
-          <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
+          <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['routine', 'Routines'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
           <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
           <input type="search" id="tq" placeholder="Search tasks" value="${esc(TF.q)}">
           <select id="tpri" aria-label="Priority"><option value="">Any priority</option>${opts(TASK_PRI, TF.pri)}</select>
@@ -364,7 +377,7 @@ function liveCheck(t, type, row, prev) {
   } else if (t === 'leads' && prev && row.owner === me && typeof celebrate === 'function') {
     celebrate(prev, row);
   } else if (t === 'notifications' && type === 'INSERT' && row.user_id === me) {
-    chime(row.kind === 'bad' ? 'alert' : 'task'); liveNotice(row.title, row.body || '', () => (row.lead_id ? openLead(row.lead_id) : go('automations')));
+    chime(row.kind === 'bad' ? 'alert' : 'task'); liveNotice(row.title, row.body || '', () => (String(row.link || '').startsWith('tasks/') ? go('tasks', row.link.slice(6)) : row.lead_id ? openLead(row.lead_id) : go('automations')));
   } else if (t === 'chat_messages' && type === 'INSERT' && row.sender !== me) {
     const r = row.room || ''; const mine = r.startsWith('dm:') ? r.includes(me) : r === 'general' || (r.startsWith('dept:') && (DB.me.departments || []).includes(r.slice(5)));
     if (mine && ST.view !== 'chat') chime('chat');

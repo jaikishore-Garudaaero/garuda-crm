@@ -59,6 +59,7 @@ const ICON = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   dot: '<circle cx="12" cy="12" r="3.5"/>',
   target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c.9 1.4 2 2 3.5 2s2.6-.6 3.5-2M9 9.5h.01M15 9.5h.01"/>',
   swap: '<path d="M4 8h14l-3-3M20 16H6l3 3"/>',
