@@ -2785,3 +2785,7 @@ table.pt td:not(.pt-n){white-space:nowrap}
 #pkind{flex-wrap:wrap}
 .pk-lead .form{margin:0}
 .pt-head input[type=search]{flex:1;min-width:200px;max-width:340px}
+
+/* project description at the top of a project */
+.pj-desc{display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:12px;border-radius:16px;background:var(--glass);border:1px solid var(--hair)}
+.pj-desc p{margin:0;font-size:13.5px;line-height:1.55;white-space:normal;overflow-wrap:anywhere}

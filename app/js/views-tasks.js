@@ -74,7 +74,7 @@ function taskModal(t = {}, after) {
       ${fld('to', 'Assign to', `<select id="to">${opts(people.map((p) => [p.id, p.id === DB.me.id ? `Myself (${p.full_name})` : `${p.full_name}${p.designation ? ' · ' + p.designation : ''}`]), t.owner || lead?.owner || DB.me.id)}</select>`)}${fld('td', 'Due date', inp('td', t.due_date || '', 'date'))}
       ${fld('tp', 'Priority', sel('tp', TASK_PRI, t.priority || 'Normal'))}${isNew ? '' : fld('ts', 'Status', sel('ts', ['Open', 'In progress', 'Done', 'Cancelled'], t.status))}
       ${isNew ? fld('tsubs', 'Sub-tasks (one per line)', '<textarea id="tsubs" style="min-height:140px" placeholder="Draft the MoU&#10;Internal review&#10;Share with the client"></textarea>', 'full') : `<div class="full faint" style="font-size:12.5px">${subs.length} sub-tasks · tick them and add sub-tasks on the task itself.</div>`}
-      ${fld('tn', 'Notes', `<textarea id="tn">${esc(t.notes || '')}</textarea>`, 'full')}</div>`,
+      ${fld('tn', 'Task description', `<textarea id="tn" rows="4" placeholder="What needs to be done, links, and what done looks like">${esc(t.notes || '')}</textarea>`, 'full')}</div>`,
     foot: `${!isNew && (t.created_by === DB.me.id || canReassign()) ? '<button class="btn danger" id="tdel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-c>Cancel</button><button class="btn primary" id="tsave">${isNew ? 'Create task' : 'Save'}</button>` });
   bindPicker(m.el, 'tlink');
   m.el.querySelectorAll('[data-tkind]').forEach((b) => (b.onclick = () => { m.el.querySelectorAll('[data-tkind]').forEach((x) => x.setAttribute('aria-pressed', x === b)); m.el.querySelector('#tlinkf').hidden = b.dataset.tkind === 'project'; m.el.querySelector('#tprojf').hidden = b.dataset.tkind !== 'project'; }));
