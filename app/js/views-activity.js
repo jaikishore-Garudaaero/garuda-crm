@@ -4,7 +4,7 @@
 /* every area the log covers: [table, area name, one record] */
 const ACT_AREAS = [
   ['leads', 'Leads', 'lead'], ['remarks', 'Remarks', 'remark'], ['payments', 'Payments', 'payment'], ['revenue_entries', 'Revenue', 'revenue entry'],
-  ['work_tasks', 'Tasks', 'task'], ['work_subtasks', 'Subtasks', 'subtask'], ['tasks', 'Reminders', 'reminder'], ['visits', 'Field visits', 'visit'],
+  ['work_tasks', 'Tasks', 'task'], ['work_subtasks', 'Subtasks', 'subtask'], ['tasks', 'Reminders', 'reminder'], ['visits', 'Meetings', 'visit'],
   ['institutions', 'Accounts', 'account'], ['contacts', 'Contacts', 'contact'], ['projects', 'Projects', 'project'], ['project_items', 'Project items', 'project item'],
   ['complaints', 'Escalations', 'escalation'], ['admissions', 'Admissions', 'admission'], ['automations', 'Automations', 'workflow'],
   ['mkt_campaigns', 'Email campaigns', 'email campaign'], ['email_templates', 'Email templates', 'email template'], ['email_lists', 'Email lists', 'email list'], ['email_sequences', 'Email sequences', 'email sequence'],

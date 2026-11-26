@@ -183,7 +183,7 @@ async function setPasswordModal() {
 
 /* ---------- phone tab bar: four sections this person uses most, plus More for everything else ---------- */
 function tabItems(allowed) {
-  const pick = [[homeView(), 'Home'], ['leads', 'Leads'], ['chat', 'Chat'], ['visits', 'Visits'], ['mydash', 'Me'], ['projects', 'Projects'], ['escalations', 'Issues'], ['sales', 'Sales'], ['revenue', 'Revenue']];
+  const pick = [[homeView(), 'Home'], ['leads', 'Leads'], ['chat', 'Chat'], ['visits', 'Meetings'], ['mydash', 'Me'], ['projects', 'Projects'], ['escalations', 'Issues'], ['sales', 'Sales'], ['revenue', 'Revenue']];
   const icon = Object.fromEntries(navItems().flatMap(([, i]) => i).map((x) => [x[0], x[2]]));
   return pick.filter((x, i) => allowed.includes(x[0]) && pick.findIndex((y) => y[0] === x[0]) === i).slice(0, 4).map((x) => [x[0], x[1], icon[x[0]] || 'dash']);
 }

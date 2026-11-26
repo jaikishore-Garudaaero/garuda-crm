@@ -2811,3 +2811,4 @@ tr.pt-r td{background:color-mix(in srgb,var(--accent) 4%,var(--glass-strong))}
 .tk-roles,.pt-trio{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
 .tk-roles i,.pt-trio i{font-style:normal;color:var(--ink3);font-size:12px;margin:0 1px}
 .pt-trio .pt-who{margin-left:2px}
+.seg.wrap{flex-wrap:wrap}

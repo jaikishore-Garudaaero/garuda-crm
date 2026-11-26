@@ -1,10 +1,15 @@
-/* Garuda CRM · Field Visits, Accounts, Project Management, Escalations */
+/* Garuda CRM · Meetings, Accounts, Project Management, Escalations */
 'use strict';
 
 const ACCOUNT_KINDS = ['College', 'School', 'Company', 'Government', 'Other'];
 const CONTACT_ROLES_ALL = CONTACT_ROLES;
 const VISIT_STATUS = ['Planned', 'Done', 'Rescheduled', 'Cancelled'];
-const visitPurposes = () => DB.settings.visit_purposes || ['Demo', 'Proposal', 'MoU signing', 'Lab survey', 'Follow-up', 'Other'];
+const MEET_REASONS = ['Initial meet', 'Demo', 'Workshop', 'MoU signing', 'Event participation', 'Proposal discussion', 'Follow-up', 'Training', 'Site survey', 'Other'];
+const visitPurposes = () => DB.settings.visit_purposes || MEET_REASONS;
+/* where a meeting happens */
+const MEET_PLACES = [['our_office', 'Client visiting our office'], ['client_place', 'We visit the client'], ['other_venue', 'At another venue'], ['online', 'Online']];
+const meetPlace = (x) => (MEET_PLACES.find((p) => p[0] === x.meet_place) || [null, x.meet_place ? x.meet_place : ''])[1];
+const meetWhere = (x) => [x.venue, x.district, x.state].filter(Boolean).join(', ');
 const visitLink = (x) => { const l = x.lead_id && DB.get('leads', x.lead_id); const i = x.institution_id && DB.get('institutions', x.institution_id); return l ? (l.is_deal ? 'Deal · ' : 'Lead · ') + (L.company(l) && !l.name.includes(L.company(l)) ? `${l.name} · ${L.company(l)}` : l.name) : i ? 'Account · ' + i.name : 'Not linked'; };
 const tomorrowAt = (h) => { const d = new Date(Date.now() + 864e5); d.setHours(h, 0, 0, 0); return d.toISOString(); };
 const vStatusCls = { Planned: 'acc', Done: 'good', Rescheduled: 'warn', Cancelled: '' };
@@ -29,23 +34,28 @@ function bindPicker(root, id) {
 }
 const pickerVal = (root, id) => { const vv = root.querySelector('#' + id)?.dataset.val || ''; const [k, x] = vv.split(':'); return { lead_id: k === 'lead' ? x : null, institution_id: k === 'inst' ? x : k === 'lead' ? DB.get('leads', x)?.institution_id || null : null }; };
 
-/* ================= Field Visits ================= */
+/* ================= Meetings ================= */
 function visitItem(x) {
   const late = ['Planned', 'Rescheduled'].includes(x.status || 'Planned') && x.planned_at && new Date(x.planned_at) < new Date();
-  return `<button class="item vitem" data-visit="${x.id}"><span class="dot ${x.status === 'Done' ? 'good' : late ? 'bad' : ''}"></span><span class="grow"><b>${esc(visitLink(x))}</b>
-    <span class="s">${esc(x.purpose)} · ${fmtDT(x.planned_at)} · ${esc(DB.pname(x.owner))}${(x.history || []).length ? ` · rescheduled ${x.history.length}×` : ''}${x.checkin_at ? ' · checked in ' + fmtTime(x.checkin_at) : ''}</span>
+  return `<button class="item vitem" data-visit="${x.id}"><span class="dot ${x.status === 'Done' ? 'good' : late ? 'bad' : ''}"></span><span class="grow"><b>${esc(x.lead_id || x.institution_id ? visitLink(x) : `${x.purpose || 'Meeting'}${meetWhere(x) ? ' · ' + meetWhere(x) : ''}`)}</b>
+    <span class="s">${esc(x.purpose)}${x.meet_place ? ' · ' + esc(meetPlace(x)) : ''}${meetWhere(x) ? ' · ' + esc(meetWhere(x)) : ''} · ${fmtDT(x.planned_at)} · ${esc(DB.pname(x.owner))}${(x.history || []).length ? ` · rescheduled ${x.history.length}×` : ''}${x.checkin_at ? ' · checked in ' + fmtTime(x.checkin_at) : ''}</span>
     ${x.outcome ? `<span class="s"><b>Outcome:</b> ${esc(x.outcome)}${x.next_step ? ' · <b>Next:</b> ' + esc(x.next_step) : ''}</span>` : ''}</span><span class="chip ${late ? 'bad' : vStatusCls[x.status || 'Planned']}">${late ? 'Overdue' : esc(x.status || 'Planned')}</span></button>`;
 }
 function visitModal(x = {}, after) {
   const isNew = !x.id;
   const people = assignablePeople(); if (x.owner && !people.some((p) => p.id === x.owner) && DB.profile(x.owner)) people.push(DB.profile(x.owner));
   const purposes = [...new Set([...visitPurposes(), x.purpose].filter(Boolean))];
-  const m = openModal({ title: isNew ? 'Plan visit' : 'Visit', width: 720,
+  const m = openModal({ title: isNew ? 'Plan meeting' : 'Meeting', width: 720,
     body: `<div class="form">
-      ${fld('vlink', 'Lead, deal or account', recordPicker('vlink', x), 'full')}
+      ${fld('vmp', 'Where is the meeting?', `<div class="seg wrap" id="vmp">${MEET_PLACES.map(([k, w]) => `<button type="button" data-vmp="${k}" aria-pressed="${(x.meet_place || 'client_place') === k}">${w}</button>`).join('')}</div>`, 'full')}
+      ${fld('vp', 'Reason', sel('vp', purposes, x.purpose || purposes[0]))}
+      ${fld('vlink', 'Lead, deal or account', recordPicker('vlink', x))}
+      <div class="full vloc" ${['client_place', 'other_venue'].includes(x.meet_place || 'client_place') ? '' : 'hidden'}><div class="form">
+        ${fld('vven', 'Venue / address', inp('vven', x.venue || '', 'text', 'placeholder="e.g. client campus, hotel or hall name"'), 'full')}
+        ${fld('vst', 'State', `<select id="vst">${opts(Object.keys(IN_STATES), x.state || DB.settings.company?.state || 'Tamil Nadu', 'Choose state')}</select>`)}
+        ${fld('vdi', 'District', `<input id="vdi" list="vdil" value="${esc(x.district || '')}" placeholder="Type or pick a district" autocomplete="off"><datalist id="vdil"></datalist>`)}</div></div>
       ${fld('vt', 'Date and time', inp('vt', dtLocal(x.planned_at || tomorrowAt(11)), 'datetime-local'))}
-      ${fld('vo', 'Who visits', `<select id="vo">${opts(people.map((p) => [p.id, p.full_name]), x.owner || DB.me.id)}</select>`)}
-      ${fld('vp', 'Purpose', sel('vp', purposes, x.purpose || purposes[0]))}
+      ${fld('vo', 'Who attends from our side', `<select id="vo">${opts(people.map((p) => [p.id, p.full_name]), x.owner || DB.me.id)}</select>`)}
       ${fld('vs', 'Status', sel('vs', VISIT_STATUS, x.status || 'Planned'))}
       ${isNew ? '' : `${fld('vout', 'Outcome (needed to mark Done)', inp('vout', x.outcome || ''), 'full')}
       ${fld('vnext', 'Next step', inp('vnext', x.next_step || x.next_action || ''))}${fld('vnf', 'Next follow-up date', inp('vnf', x.next_followup_at ? localDate(x.next_followup_at) : '', 'date'))}
@@ -55,19 +65,27 @@ function visitModal(x = {}, after) {
         ${x.checkin_photo ? `<img src="${esc(x.checkin_photo)}" alt="Check-in photo" class="ciph">` : ''}<div id="vphp"></div></div>`}
       ${(x.history || []).length ? `<div class="full"><h4>Reschedule history</h4><ul class="faint" style="font-size:12.5px;margin:4px 0;padding-left:18px">${x.history.map((h) => `<li>${fmtDT(h.from)} → ${fmtDT(h.to)} · changed ${fmtDT(h.at)} by ${esc(DB.pname(h.by))}</li>`).join('')}</ul></div>` : ''}
     </div>`,
-    foot: `${!isNew && (x.created_by === DB.me.id || isHead()) ? '<button class="btn danger" id="vdel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-c>Cancel</button><button class="btn primary" id="vsave">${isNew ? 'Plan visit' : 'Save'}</button>` });
+    foot: `${!isNew && (x.created_by === DB.me.id || isHead()) ? '<button class="btn danger" id="vdel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-c>Cancel</button><button class="btn primary" id="vsave">${isNew ? 'Plan meeting' : 'Save'}</button>` });
   bindPicker(m.el, 'vlink');
+  const fillD = () => { const st = v(m.el, 'vst'); m.el.querySelector('#vdil').innerHTML = (IN_STATES[st] || []).map((d) => `<option value="${esc(d)}">`).join(''); };
+  fillD(); m.el.querySelector('#vst').onchange = () => { fillD(); const d = m.el.querySelector('#vdi'); if (d.value && !(IN_STATES[v(m.el, 'vst')] || []).includes(d.value)) d.value = ''; };
+  m.el.querySelectorAll('[data-vmp]').forEach((b) => (b.onclick = () => { m.el.querySelectorAll('[data-vmp]').forEach((y) => y.setAttribute('aria-pressed', y === b)); m.el.querySelector('.vloc').hidden = !['client_place', 'other_venue'].includes(b.dataset.vmp); }));
   const ci = { at: null, lat: null, lng: null, acc: null, photo: null };
   m.el.querySelector('#vloc')?.addEventListener('click', () => { if (!navigator.geolocation) return toast('Location is not available on this device', true); navigator.geolocation.getCurrentPosition((p) => { Object.assign(ci, { at: nowISO(), lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }); m.el.querySelector('#vci').textContent = `Location captured (±${ci.acc} m)`; }, (e) => toast('Could not get location: ' + e.message, true), { enableHighAccuracy: true, timeout: 15000 }); });
   m.el.querySelector('#vph')?.addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; shrinkPhoto(f).then((d) => { ci.photo = d; ci.at ||= nowISO(); m.el.querySelector('#vphp').innerHTML = `<img src="${d}" alt="Check-in photo" class="ciph">`; }).catch(() => toast('Could not read that photo', true)); });
   m.el.querySelector('#vsave').onclick = () => guard(async () => {
     const link = pickerVal(m.el, 'vlink');
-    if (!link.lead_id && !link.institution_id) throw new Error('Link the visit to a lead, deal or account.');
-    const row = { ...link, planned_at: fromLocal(v(m.el, 'vt')), owner: v(m.el, 'vo'), purpose: v(m.el, 'vp'), status: v(m.el, 'vs') };
+    const place = m.el.querySelector('[data-vmp][aria-pressed="true"]')?.dataset.vmp || 'client_place';
+    const purpose = v(m.el, 'vp');
+    if (!link.lead_id && !link.institution_id && !['Event participation', 'Workshop', 'Training'].includes(purpose)) throw new Error('Link the meeting to a lead, deal or account (only events, workshops and trainings can stand alone).');
+    const away = ['client_place', 'other_venue'].includes(place);
+    if (place === 'other_venue' && !v(m.el, 'vdi').trim()) throw new Error('Choose the state and district of the venue.');
+    const row = { ...link, meet_place: place, venue: away ? v(m.el, 'vven').trim() || null : null, state: away ? v(m.el, 'vst') || null : null, district: away ? v(m.el, 'vdi').trim() || null : null,
+      planned_at: fromLocal(v(m.el, 'vt')), owner: v(m.el, 'vo'), purpose, status: v(m.el, 'vs') };
     if (!row.planned_at) throw new Error('Choose the date and time.');
     if (!isNew) {
       Object.assign(row, { outcome: v(m.el, 'vout').trim(), next_step: v(m.el, 'vnext').trim(), next_followup_at: v(m.el, 'vnf') ? new Date(v(m.el, 'vnf') + 'T11:00:00').toISOString() : null, remarks: v(m.el, 'vrem') });
-      if (row.status === 'Done' && !row.outcome) throw new Error('Add the outcome before marking the visit Done.');
+      if (row.status === 'Done' && !row.outcome) throw new Error('Add the outcome before marking the meeting Done.');
       if (ci.at) Object.assign(row, { checkin_at: x.checkin_at || ci.at, ...(ci.lat != null ? { checkin_lat: ci.lat, checkin_lng: ci.lng, checkin_acc_m: ci.acc } : {}), ...(ci.photo ? { checkin_photo: ci.photo } : {}) });
       /* moving the date keeps the old one in the history; a planned visit becomes Rescheduled */
       if (row.status === 'Planned' && x.planned_at && new Date(row.planned_at).getTime() !== new Date(x.planned_at).getTime()) row.status = 'Rescheduled';
@@ -75,8 +93,8 @@ function visitModal(x = {}, after) {
       if (row.next_followup_at && row.lead_id) await DB.update('leads', row.lead_id, { next_followup_at: row.next_followup_at }).catch(() => {});
     } else await DB.insert('visits', { ...row, created_by: DB.me.id });
     m.close(); after?.();
-  }, isNew ? 'Visit planned' : 'Visit saved');
-  m.el.querySelector('#vdel')?.addEventListener('click', () => guard(async () => { if (!(await confirmBox('Delete this visit?', 'Delete'))) return; await DB.remove('visits', x.id); m.close(); after?.(); }, 'Deleted'));
+  }, isNew ? 'Meeting planned' : 'Meeting saved');
+  m.el.querySelector('#vdel')?.addEventListener('click', () => guard(async () => { if (!(await confirmBox('Delete this meeting?', 'Delete'))) return; await DB.remove('visits', x.id); m.close(); after?.(); }, 'Deleted'));
 }
 /* check-in photos are stored small (about 60 KB) with the visit */
 function shrinkPhoto(file) {
@@ -84,8 +102,8 @@ function shrinkPhoto(file) {
 }
 const VF = { when: 'upcoming', mode: 'list', month: '' };
 VIEWS.visits = {
-  title: 'Field Visits', sub: 'Plan visits from a lead, deal or account. Mark them done with the outcome and the next step.',
-  actions: () => `<button class="btn primary" id="newvisit">${svg('plus')} Plan visit</button>`,
+  title: 'Meetings', sub: 'Clients at our office, meetings at their place, workshops and demos at other venues, and online. Mark them done with the outcome and the next step.',
+  actions: () => `<button class="btn primary" id="newvisit">${svg('plus')} Plan meeting</button>`,
   render(el) {
     if (ST.arg) { if (['today', 'week', 'upcoming', 'overdue', 'done', 'all'].includes(ST.arg)) VF.when = ST.arg; ST.arg = null; }
     const now = new Date(); const today = todayStr(); const wk = M.range('week');
@@ -107,7 +125,7 @@ VIEWS.visits = {
         <div id="vbody"></div></section>`;
     const body = el.querySelector('#vbody');
     if (VF.mode === 'cal') visitCalendar(body, base, () => this.render(el));
-    else body.innerHTML = rows.length ? `<div class="list">${rows.map(visitItem).join('')}</div>` : empty('No visits here', VF.when === 'overdue' ? 'Nothing overdue.' : 'Plan one from a lead, deal or account.');
+    else body.innerHTML = rows.length ? `<div class="list">${rows.map(visitItem).join('')}</div>` : empty('No meetings here', VF.when === 'overdue' ? 'Nothing overdue.' : 'Plan one from a lead, deal or account.');
     el.querySelectorAll('[data-vw]').forEach((b) => (b.onclick = () => { VF.when = b.dataset.vw; VF.mode = 'list'; this.render(el); }));
     el.querySelectorAll('[data-vm]').forEach((b) => (b.onclick = () => { VF.mode = b.dataset.vm; this.render(el); }));
     el.querySelectorAll('[data-visit]').forEach((b) => (b.onclick = () => visitModal(DB.get('visits', b.dataset.visit), () => this.render(el))));
@@ -161,7 +179,7 @@ function openAccount(id) {
     const projs = DB.t.projects.filter((p) => p.institution_id === id || ls.some((l) => l.id === p.lead_id));
     const escs = DB.t.complaints.filter((c) => c.institution_id === id || ls.some((l) => l.id === c.lead_id));
     ctx.el.innerHTML = `<div class="drawer-head"><div><div class="row"><span class="chip">${esc(i.kind)}</span>${i.strategic ? '<span class="chip acc">Strategic account</span>' : ''}</div><h2 style="margin-top:6px">${esc(i.name)}</h2><div class="faint" style="font-size:12.5px">${esc([i.city, i.state].filter(Boolean).join(', '))} · owner ${esc(DB.pname(i.owner))} · ${ls.filter(L.inPipe).length} open deals · won ${inr(sum(ls.filter(L.won), (l) => l.value))}</div></div><button class="btn ghost small" data-close>${svg('x')}</button></div>
-      <div class="dbar row"><button class="btn small primary" id="anl">${svg('plus')} New lead</button><button class="btn small" id="anv">${svg('pin')} Plan visit</button><button class="btn small" id="ane">${svg('warn')} Raise escalation</button></div>
+      <div class="dbar row"><button class="btn small primary" id="anl">${svg('plus')} New lead</button><button class="btn small" id="anv">${svg('pin')} Plan meeting</button><button class="btn small" id="ane">${svg('warn')} Raise escalation</button></div>
       <div class="tabs">${[['overview', 'Details'], ['contacts', `Contacts (${contacts.length})`], ['opps', `Leads & deals (${ls.length})`], ['projects', `Projects (${projs.length})`], ['visits', `Visits (${visits.length})`], ['esc', `Escalations (${escs.length})`], ['brief', 'Claude brief']].map(([k, t]) => `<button data-t="${k}" aria-selected="${acctTab === k}">${t}</button>`).join('')}</div><div class="drawer-body" id="ib"></div>`;
     ctx.el.querySelector('[data-close]').onclick = ctx.close;
     ctx.el.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => { acctTab = b.dataset.t; ctx.render(); }));
@@ -189,7 +207,7 @@ function openAccount(id) {
       b.innerHTML = projs.length ? `<div class="list">${projs.map((p) => `<button class="item" data-proj="${p.id}"><span class="grow"><b>${esc(p.name)}</b><span class="s">${deptChip(p.dept)} ${esc(p.status)} · ${esc(DB.pname(p.owner))}${p.end_date ? ' · ends ' + fmtDate(p.end_date) : ''}</span></span><span>${inr(p.value)}</span></button>`).join('')}</div>` : '<p class="faint">No projects. Winning a deal creates one.</p>';
       b.querySelectorAll('[data-proj]').forEach((x) => (x.onclick = () => openProject(x.dataset.proj)));
     } else if (acctTab === 'visits') {
-      b.innerHTML = visits.length ? `<div class="list">${visits.map(visitItem).join('')}</div>` : '<p class="faint">No visits yet.</p>';
+      b.innerHTML = visits.length ? `<div class="list">${visits.map(visitItem).join('')}</div>` : '<p class="faint">No meetings yet.</p>';
       b.querySelectorAll('[data-visit]').forEach((x) => (x.onclick = () => visitModal(DB.get('visits', x.dataset.visit), () => ctx.render())));
     } else if (acctTab === 'esc') {
       b.innerHTML = escs.length ? `<div class="list">${escs.map(escItem).join('')}</div>` : '<p class="faint">No escalations.</p>';

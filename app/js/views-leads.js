@@ -418,7 +418,7 @@ function dupCheck(phone, email) {
 
 /* ================= Lead record ================= */
 /* the record: client details on the left half, activity on the right half */
-const LEAD_TABS = [['history', 'Activity'], ['tasks', 'Tasks'], ['remarks', 'Calls & remarks'], ['money', 'Quote & payments'], ['emails', 'Emails'], ['work', 'Visits'], ['ai', 'Claude']];
+const LEAD_TABS = [['history', 'Activity'], ['tasks', 'Tasks'], ['remarks', 'Calls & remarks'], ['money', 'Quote & payments'], ['emails', 'Emails'], ['work', 'Meetings'], ['ai', 'Claude']];
 /* discounts above the sales limit can only be given by an Admin */
 function discountOk(l, disc) { return disc <= discountLimit() || isHead(); }
 async function discountBlocked(l, disc) {
@@ -437,7 +437,7 @@ function openLead(id) {
       <div class="dbar row"><label class="faint" for="dstage" style="font-size:12px">${l.is_deal ? 'Stage' : 'Status'}</label><select id="dstage" style="width:auto">${S.list(l.funnel, l.is_deal ? 'deal' : 'lead').map((s) => `<option ${s.key === l.stage ? 'selected' : ''}>${esc(s.key)}</option>`).join('')}</select>
         ${l.is_deal && !st.is_won && !st.is_lost ? `<span class="faint" style="font-size:12px">${st.prob}% win</span>` : ''}
         ${!l.is_deal && L.open(l) ? `<button class="btn small primary" id="dconv">${svg('up')} Convert to deal</button>` : ''}
-        <button class="btn small" id="dvisit">${svg('pin')} Plan visit</button>
+        <button class="btn small" id="dvisit">${svg('pin')} Plan meeting</button>
         <button class="btn small" id="dacct">${svg('inst')} ${inst ? esc(inst.name) : 'Link account'}</button>
         <button class="btn small" id="dcamp">${svg('ads')} ${camp ? esc(camp.name) : 'Campaign'}</button>
         ${l.phone ? `<a class="btn small" href="tel:${esc(l.phone)}">${svg('phone')} Call</a><a class="btn small" href="https://wa.me/91${esc(l.phone.replace(/\D/g, '').slice(-10))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
@@ -674,7 +674,7 @@ function tabEmails(l, el, ctx) {
 
 function tabWork(l, el, ctx) {
   const visits = DB.t.visits.filter((x) => x.lead_id === l.id || (l.institution_id && x.institution_id === l.institution_id)).sort((a, b) => String(b.planned_at).localeCompare(String(a.planned_at)));
-  el.innerHTML = `<div class="row between"><h3>Visits</h3><button class="btn small" id="wv">${svg('plus')} Plan visit</button></div><div class="list">${visits.map(visitItem).join('') || '<p class="faint">No visits yet.</p>'}</div>`;
+  el.innerHTML = `<div class="row between"><h3>Meetings</h3><button class="btn small" id="wv">${svg('plus')} Plan meeting</button></div><div class="list">${visits.map(visitItem).join('') || '<p class="faint">No meetings yet.</p>'}</div>`;
   el.querySelector('#wv').onclick = () => visitModal({ lead_id: l.id, institution_id: l.institution_id }, () => ctx.render());
   el.querySelectorAll('[data-visit]').forEach((b) => (b.onclick = () => visitModal(DB.get('visits', b.dataset.visit), () => ctx.render())));
 }
@@ -729,7 +729,7 @@ async function tabHistory(l, el) {
   DB.t.price_disclosures.filter((p) => p.lead_id === l.id).forEach((p) => ev.push({ at: p.disclosed_at, cls: '', html: `${esc(DB.pname(p.disclosed_by))} disclosed <b>${inrFull(p.amount)}</b> + GST` }));
   DB.t.payments.filter((p) => p.lead_id === l.id).forEach((p) => { ev.push({ at: p.claimed_at || p.paid_on, cls: 'money', html: `Payment ${inrFull(p.amount)} recorded by ${esc(DB.pname(p.claimed_by))}` }); if (p.verified_at) ev.push({ at: p.verified_at, cls: 'money', html: `Payment verified by ${esc(DB.pname(p.verified_by))}` }); });
   DB.t.email_queue.filter((e) => e.lead_id === l.id).forEach((e) => ev.push({ at: e.sent_at || e.created_at, cls: 'mail', html: `Email “${esc(e.subject)}” ${esc(e.status.toLowerCase())}` }));
-  DB.t.visits.filter((x) => x.lead_id === l.id).forEach((x) => { ev.push({ at: x.created_at, cls: '', html: `Visit planned by ${esc(DB.pname(x.created_by || x.owner))}: <b>${esc(x.purpose)}</b> on ${fmtDT(x.planned_at)} · ${esc(DB.pname(x.owner))}` }); (x.history || []).forEach((h) => ev.push({ at: h.at, cls: '', html: `Visit rescheduled from ${fmtDT(h.from)}${h.reason ? ' · ' + esc(h.reason) : ''}` })); if (x.status === 'Done') ev.push({ at: x.checkin_at || x.planned_at, cls: 'call', html: `Visit done · <b>${esc(x.outcome || '')}</b>${x.next_step ? ' · next: ' + esc(x.next_step) : ''}` }); });
+  DB.t.visits.filter((x) => x.lead_id === l.id).forEach((x) => { ev.push({ at: x.created_at, cls: '', html: `Meeting planned by ${esc(DB.pname(x.created_by || x.owner))}: <b>${esc(x.purpose)}</b> on ${fmtDT(x.planned_at)} · ${esc(DB.pname(x.owner))}` }); (x.history || []).forEach((h) => ev.push({ at: h.at, cls: '', html: `Meeting rescheduled from ${fmtDT(h.from)}${h.reason ? ' · ' + esc(h.reason) : ''}` })); if (x.status === 'Done') ev.push({ at: x.checkin_at || x.planned_at, cls: 'call', html: `Meeting done · <b>${esc(x.outcome || '')}</b>${x.next_step ? ' · next: ' + esc(x.next_step) : ''}` }); });
   if (l.deal_at) ev.push({ at: l.deal_at, cls: 'money', html: '<b>Converted to a deal</b>' });
   DB.t.work_tasks.filter((t) => t.lead_id === l.id).forEach((t) => {
     ev.push({ at: t.created_at, cls: 'sys', html: `Task <b>${esc(t.title)}</b> added by ${esc(DB.pname(t.created_by))} for ${esc(DB.pname(t.owner))}${t.due_date ? ', due ' + fmtDate(t.due_date) : ''}` });

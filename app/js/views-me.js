@@ -357,7 +357,7 @@ function setTargets(b, rer) {
 
 /* ================= My dashboard: my own targets, follow-ups, tasks, visits and KRA (no team numbers) ================= */
 VIEWS.mydash = {
-  title: 'My dashboard', sub: 'Where you stand: your target, today’s follow-ups and visits, your tasks and your KRA. Only your own work.',
+  title: 'My dashboard', sub: 'Where you stand: your target, today’s follow-ups and meetings, your tasks and your KRA. Only your own work.',
   render(el) {
     const me = DB.me.id; const r = curRange(); const now = new Date(); const today = todayStr();
     /* the head of the department and the super admin carry the team's target as their own */
@@ -382,7 +382,7 @@ VIEWS.mydash = {
         ${kpi({ label: 'Follow-ups today', value: put('ft', 'My follow-ups still due today', todayF), sub: 'Still to make' })}
         ${kpi({ label: 'Leads I own', value: put('l', 'My open leads', mine.filter((l) => !l.is_deal)), sub: 'Open' })}
         ${kpi({ label: 'Deals I own', value: put('d', 'My open deals', deals), sub: inr(sum(deals, (l) => l.value)) + ' open' })}
-        ${kpi({ label: 'Visits done', value: nfmt(s.visits), sub: r.label })}
+        ${kpi({ label: 'Meetings done', value: nfmt(s.visits), sub: r.label })}
         ${kpi({ label: 'Open tasks', value: nfmt(tasks.length), sub: `${tasks.filter((t) => taskTone(t) === 'bad').length} overdue` })}
       </div>
       ${taskOverview(DB.t.work_tasks.filter((t) => t.owner === DB.me.id || subOwners(t.id).has(DB.me.id)), { title: 'My tasks' })}
@@ -392,9 +392,9 @@ VIEWS.mydash = {
 
       </div>
       <div class="grid g2">
-        <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Visits</span> Next and missed</h2><a class="sub" href="#visits">Field Visits →</a></div>
-          ${vMiss.length ? `<div class="note bad" style="margin-bottom:8px">${vMiss.length} planned visit${vMiss.length === 1 ? ' was' : 's were'} not checked in. Check in, add the outcome or reschedule.</div>` : ''}
-          ${vMiss.length + vNext.length ? `<ul class="mini vlist">${[...vMiss, ...vNext].slice(0, 8).map((x) => `<li class="${vMiss.includes(x) ? 'tone-bad' : ''}"><span class="grow"><b>${esc(x.purpose || 'Visit')}</b><span class="s">${esc(typeof visitLink === 'function' ? visitLink(x) : '')}</span></span><span class="faint">${fmtDT(x.planned_at)}</span></li>`).join('')}</ul>` : '<p class="faint">No visits planned.</p>'}</section>
+        <section class="glass panel"><div class="panel-head"><h2><span class="gtag teal">Meetings</span> Next and missed</h2><a class="sub" href="#visits">Meetings →</a></div>
+          ${vMiss.length ? `<div class="note bad" style="margin-bottom:8px">${vMiss.length} planned meeting${vMiss.length === 1 ? ' was' : 's were'} not checked in. Check in, add the outcome or reschedule.</div>` : ''}
+          ${vMiss.length + vNext.length ? `<ul class="mini vlist">${[...vMiss, ...vNext].slice(0, 8).map((x) => `<li class="${vMiss.includes(x) ? 'tone-bad' : ''}"><span class="grow"><b>${esc(x.purpose || 'Meeting')}</b><span class="s">${esc(typeof visitLink === 'function' ? visitLink(x) : '')}</span></span><span class="faint">${fmtDT(x.planned_at)}</span></li>`).join('')}</ul>` : '<p class="faint">No meetings planned.</p>'}</section>
         <section class="glass panel"><div class="panel-head"><h2><span class="gtag blue">Deals</span> My deals by closure date</h2></div>
           ${deals.length ? `<ul class="dlist">${deals.slice(0, 8).map((l) => `<li><button data-lead="${l.id}"><span class="grow"><b>${esc(L.title(l))}</b><span class="s">${esc(l.funnel)} · ${esc(l.stage)} · ${L.prob(l)}%</span></span><span class="r"><b>${inr(l.value)}</b><span class="chip tone ${!l.expected_close ? 'warn' : l.expected_close < todayStr() ? 'bad' : stageTone(l)}">${l.expected_close ? fmtDate(l.expected_close) : 'No date'}</span></span></button></li>`).join('')}</ul>` : '<p class="faint">No open deals yet.</p>'}</section>
       </div>
@@ -436,9 +436,9 @@ function alertsList() {
   const me = DB.me.id; const now = Date.now(); const today = todayStr(); const out = [];
   const add = (id, tone, ic, title, sub, to, at, due) => out.push({ id, tone, ic, title, sub, to, at, due });
   DB.t.visits.filter((x) => x.owner === me && ['Planned', 'Rescheduled'].includes(x.status || 'Planned') && x.planned_at).forEach((x) => {
-    const t = new Date(x.planned_at).getTime(); const what = esc(x.purpose || 'Visit'); const where = esc(typeof visitLink === 'function' ? visitLink(x) : '');
-    if (t < now - 30 * 6e4) add('v' + x.id + x.planned_at, 'bad', 'pin', `Missed visit? ${what}`, `${where} · was ${fmtDT(x.planned_at)}. Check in, add the outcome or reschedule.`, 'visits/overdue', x.planned_at, true);
-    else if (t - now <= 60 * 6e4) add('v' + x.id + x.planned_at, 'warn', 'pin', `Visit ${t < now ? 'now' : 'in ' + Math.max(1, Math.round((t - now) / 6e4)) + ' min'}: ${what}`, where, 'visits/today', x.planned_at, true);
+    const t = new Date(x.planned_at).getTime(); const what = esc(x.purpose || 'Meeting'); const where = esc(typeof visitLink === 'function' ? visitLink(x) : '');
+    if (t < now - 30 * 6e4) add('v' + x.id + x.planned_at, 'bad', 'pin', `Missed meeting? ${what}`, `${where} · was ${fmtDT(x.planned_at)}. Check in, add the outcome or reschedule.`, 'visits/overdue', x.planned_at, true);
+    else if (t - now <= 60 * 6e4) add('v' + x.id + x.planned_at, 'warn', 'pin', `Meeting ${t < now ? 'now' : 'in ' + Math.max(1, Math.round((t - now) / 6e4)) + ' min'}: ${what}`, where, 'visits/today', x.planned_at, true);
     else if (localDate(x.planned_at) === today) add('v' + x.id + x.planned_at, 'info', 'pin', `Visit today: ${what}`, `${where} · ${fmtDT(x.planned_at)}`, 'visits/today', x.planned_at, false);
   });
   visibleLeads().filter((l) => l.owner === me && L.open(l) && l.next_followup_at).forEach((l) => {

@@ -181,7 +181,7 @@ VIEWS.command = {
         <section class="glass bc b-fc" data-go="deals"><div class="bc-h"><span class="gtag violet">Forecast</span><span class="faint">weighted pipeline</span></div>
           ${hbars(fc.map(([label, a], i) => ({ label, sub: `${a.length} deals`, value: wtd(a), color: PAL[i] })), inrShort)}</section>
         <section class="glass bc b-del" data-go="projects"><div class="bc-h"><span class="gtag amber">Delivery</span><span class="faint">${esc(r.label)}</span></div>
-          <div class="rings">${ring(msDue.length ? pct(msDone.length, msDue.length) : 0, msDue.length ? `${msDone.length}/${msDue.length}` : '—', 'Milestones', '#f0a31c')}${ring(escR.length ? pct(escOk.length, escR.length) : 0, escR.length ? `${escOk.length}/${escR.length}` : '—', 'Escalations in time', '#3a8ae0')}${ring(vis.length ? pct(visDone.length, vis.length) : 0, vis.length ? `${visDone.length}/${vis.length}` : '—', 'Visits done', '#2cc3b5')}${ring(tk.length ? pct(tkDone.length, tk.length) : 0, tk.length ? `${tkDone.length}/${tk.length}` : '—', 'Tasks done', '#7b6cf0')}</div></section>
+          <div class="rings">${ring(msDue.length ? pct(msDone.length, msDue.length) : 0, msDue.length ? `${msDone.length}/${msDue.length}` : '—', 'Milestones', '#f0a31c')}${ring(escR.length ? pct(escOk.length, escR.length) : 0, escR.length ? `${escOk.length}/${escR.length}` : '—', 'Escalations in time', '#3a8ae0')}${ring(vis.length ? pct(visDone.length, vis.length) : 0, vis.length ? `${visDone.length}/${vis.length}` : '—', 'Meetings done', '#2cc3b5')}${ring(tk.length ? pct(tkDone.length, tk.length) : 0, tk.length ? `${tkDone.length}/${tk.length}` : '—', 'Tasks done', '#7b6cf0')}</div></section>
       </div>`;
     bindFilters(el, () => this.render(el)); bindDrills(el, xb.D);
     el.querySelectorAll('[data-go]').forEach((b) => (b.onclick = (e) => { if (b.classList.contains('bc') && e.target.closest('[data-go]') !== b) return; e.stopPropagation(); const [v0, a] = b.dataset.go.split('/'); go(v0, a); }));
@@ -405,7 +405,7 @@ VIEWS.team = {
         ${kpi({ label: 'Leads I own', value: put('l', 'My open leads', s.rows.leads), sub: 'Open' })}
         ${kpi({ label: 'Deals I own', value: put('d', 'My open deals', s.rows.deals), sub: 'Open' })}
         ${kpi({ label: 'Conversions', value: put('w', `Won · ${r.label}`, s.rows.won), sub: r.label })}
-        ${kpi({ label: 'Visits done', value: nfmt(s.visits), sub: r.label })}
+        ${kpi({ label: 'Meetings done', value: nfmt(s.visits), sub: r.label })}
         ${kpi({ label: 'KRA score', value: s.kra ? s.kra.score : '—', sub: 'out of 100', meter: s.kra?.score })}
       </div>
       ${s.kra ? `<section class="glass panel"><div class="panel-head"><h2>My KRA</h2><span class="sub">${r.label}</span></div>${kraTable(s.kra)}</section>` : ''}`;
