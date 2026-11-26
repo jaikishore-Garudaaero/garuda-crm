@@ -56,19 +56,24 @@ export async function claudeTool<T>(opts: {
 }): Promise<{ result: T; usage: { input_tokens: number; output_tokens: number } }> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set in Supabase secrets");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: opts.model,
-      max_tokens: opts.maxTokens ?? 1500,
-      system: opts.system,
-      tools: [opts.tool],
-      tool_choice: { type: "tool", name: opts.tool.name },
-      messages: [{ role: "user", content: opts.prompt }],
-    }),
-  });
-  const body = await res.json();
+  // some models refuse a forced tool; then ask for the tool in plain words and let the model choose it
+  const call = async (forced: boolean) => {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: opts.maxTokens ?? 1500,
+        system: forced ? opts.system : `${opts.system}\n\nAlways answer by calling the ${opts.tool.name} tool exactly once. Do not answer in plain text.`,
+        tools: [opts.tool],
+        tool_choice: forced ? { type: "tool", name: opts.tool.name } : { type: "auto" },
+        messages: [{ role: "user", content: opts.prompt }],
+      }),
+    });
+    return { res, body: await res.json().catch(() => ({})) };
+  };
+  let { res, body } = await call(true);
+  if (!res.ok && res.status === 400 && /tool_choice/i.test(body?.error?.message || "")) ({ res, body } = await call(false));
   if (!res.ok) throw new Error(`Claude API ${res.status}: ${body?.error?.message || JSON.stringify(body)}`);
   const block = (body.content || []).find((c: any) => c.type === "tool_use");
   if (!block) throw new Error("Claude returned no structured result");
