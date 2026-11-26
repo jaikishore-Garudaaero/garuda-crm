@@ -260,7 +260,7 @@ const NAV = [
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Meetings', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()], ['automations', 'Automations', 'spark', () => !hideSales() && !isMember()]]],
   ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
-  ['Execution', [['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
+  ['Execution', [['gmail', 'Gmail Desk', 'mail', () => true], ['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
   ['Control', [['activity', 'Activity log', 'eye', () => isSuper()]]],
 ];
 /* Price Book and Settings live in the menu under the user's name */
@@ -275,6 +275,7 @@ const ESC_OPEN = ['Open', 'In progress', 'Escalated up'];
 function badgeFor(k) {
   if (k === 'escalations') return DB.t.complaints.filter((c) => ESC_OPEN.includes(c.status)).length || '';
   if (k === 'settings' && isHead()) return DB.t.profiles.filter((p) => p.active && !p.auth_id).length || '';
+  if (k === 'gmail') return (DB.t.notifications || []).filter((n) => n.user_id === DB.me?.id && n.kind === 'gmail' && !n.read_at).length || '';
   if (k === 'chat') return typeof chatUnread === 'function' ? chatUnread() || '' : '';
   if (k === 'tasks') return DB.t.work_tasks.filter((t) => t.owner === DB.me?.id && taskOpen(t) && t.due_date && t.due_date < todayStr()).length || '';
   if (k === 'revenue' && isFinance()) return DB.t.payments.filter((p) => p.status === 'Claimed').length || '';

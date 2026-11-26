@@ -460,7 +460,9 @@ function alertsList() {
   unt.slice(0, 8).forEach((l) => add('u' + l.id, 'bad', 'phone', `Not contacted yet: ${esc(l.name)}`, `Given to you ${rel(l.allocated_date || l.created_at)}. Call now.`, 'lead:' + l.id, l.allocated_date || l.created_at, true));
   if (unt.length > 8) add('um' + unt.length + today, 'bad', 'phone', `${unt.length - 8} more leads not contacted yet`, 'Open Leads and pick “Never reached”', 'leads', today + 'T09:00:00', false);
   /* messages from automations and the system */
-  (DB.t.notifications || []).filter((n) => n.user_id === me && !n.read_at).slice(-30).forEach((n) => add('n' + n.id, n.kind === 'good' ? 'info' : n.kind === 'info' ? 'info' : n.kind, n.link ? 'chat' : n.kind === 'good' ? 'check' : 'bell', esc(n.title), `${esc(n.body || '')}${n.link ? ` <a class="lnk" href="${esc(n.link)}" target="_blank" rel="noopener" data-nread="${n.id}">Open WhatsApp</a>` : ''}`, n.lead_id ? 'lead:' + n.lead_id : 'automations', n.created_at, n.kind === 'bad'));
+  (DB.t.notifications || []).filter((n) => n.user_id === me && !n.read_at && n.kind !== 'gmail').slice(-30).forEach((n) => add('n' + n.id, n.kind === 'good' ? 'info' : n.kind === 'info' ? 'info' : n.kind, n.link ? 'chat' : n.kind === 'good' ? 'check' : 'bell', esc(n.title), `${esc(n.body || '')}${n.link ? ` <a class="lnk" href="${esc(n.link)}" target="_blank" rel="noopener" data-nread="${n.id}">Open WhatsApp</a>` : ''}`, n.lead_id ? 'lead:' + n.lead_id : 'automations', n.created_at, n.kind === 'bad'));
+  /* Gmail Desk: what the CRM found in my mail */
+  (DB.t.notifications || []).filter((n) => n.user_id === me && !n.read_at && n.kind === 'gmail').slice(-30).forEach((n) => add('n' + n.id, /Escalation|asking|Rejected/.test(n.title) ? 'bad' : 'warn', 'mail', '📧 ' + esc(n.title), esc(n.body || ''), 'gmail', n.created_at, /Escalation|asking/.test(n.title)));
   const un = typeof chatUnread === 'function' ? chatUnread() : 0;
   if (un) add('c' + un + (DB.t.chat_messages.at(-1)?.id || ''), 'info', 'chat', `${un} unread message${un === 1 ? '' : 's'} in Garuda Chat`, '', 'chat', nowISO(), false);
   const st = RM.load();

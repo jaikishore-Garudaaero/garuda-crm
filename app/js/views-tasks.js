@@ -12,6 +12,7 @@ const RECUR = [['', 'Does not repeat'], ['daily', 'Every day'], ['weekdays', 'Ev
 const RECUR_SHORT = { daily: 'Daily', weekdays: 'Mon–Sat', weekly: 'Weekly', monthly: 'Monthly' };
 const recurChip = (t) => (t.recur ? `<span class="tk-rec" title="Repeats ${esc((RECUR.find((r) => r[0] === t.recur) || [])[1] || t.recur)}${t.remind_time ? ' · reminder at ' + String(t.remind_time).slice(0, 5) : ''}">${svg('repeat')} ${RECUR_SHORT[t.recur] || t.recur}</span>` : t.remind_time ? `<span class="tk-rec" title="Reminder">${svg('bell')} ${String(t.remind_time).slice(0, 5)}</span>` : '');
 const projBadge = (pj) => `<span class="tk-projb" style="--dc:${esc(typeof projColor === 'function' ? projColor(pj) : '#7b5cf0')}" title="Project">${svg('proj')} ${esc(pj.name)}</span>`;
+const gmailChip = (t) => (t.source === 'gmail' ? `<span class="chip tone info gm-chip" title="Came from Gmail">📧 Gmail</span>` : '');
 /* positive / alarming / negative */
 function taskTone(t) {
   if (t.status === 'Done') return 'good';
@@ -159,7 +160,7 @@ const priFlag = (p) => (p && p !== 'Normal' ? `<span class="tk-pri p-${p.toLower
 function tkCard(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t); const pct = taskPct(t);
   return `<article class="tk-card pri-${(t.priority || 'Normal').toLowerCase()} ${t.status === 'Done' ? 'is-done' : ''}" draggable="true" data-tk="${t.id}" tabindex="0" aria-label="${esc(t.title)}">
-    <div class="tk-top">${priFlag(t.priority)}${recurChip(t)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
+    <div class="tk-top">${priFlag(t.priority)}${recurChip(t)}${gmailChip(t)}${lk?.pj ? projBadge(lk.pj) : lk ? `<span class="tk-link">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</div>
     <b class="tk-title">${esc(t.title)}</b>
     ${subs.length ? `<div class="tk-prog"><span class="pbar ${pct === 100 ? 'good' : 'info'} sm"><i style="width:${pct}%"></i></span><span>${svg('check')} ${done}/${subs.length}</span></div>` : ''}
     <div class="tk-meta">${dueBadge(t)}${(t.updates || []).length ? `<span class="tk-cnt" title="Remarks">${svg('chat')} ${(t.updates || []).length}</span>` : ''}<span class="grow"></span>
@@ -170,7 +171,7 @@ function tkRow(t) {
   const subs = taskSubs(t.id); const done = subs.filter((x) => x.done).length; const lk = taskLink(t);
   return `<div class="tk-row ${t.status === 'Done' ? 'is-done' : ''}" data-tk="${t.id}" tabindex="0">
     <button class="tk-check ${t.status === 'Done' ? 'on' : ''}" data-tkdone="${t.id}" aria-label="${t.status === 'Done' ? 'Mark not done' : 'Mark done'}">${svg('check')}</button>
-    <span class="tk-rt"><b>${esc(t.title)} ${recurChip(t)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
+    <span class="tk-rt"><b>${esc(t.title)} ${recurChip(t)}${gmailChip(t)}</b>${lk?.pj ? `<span class="s">${projBadge(lk.pj)}</span>` : lk ? `<span class="s">${esc(lk.kind)} · ${esc(lk.name)}</span>` : ''}</span>
     <span class="tk-rs">${subs.length ? `<span class="tk-cnt">${svg('check')} ${done}/${subs.length}</span>` : ''}</span>
     <span class="tk-rs">${t.status === 'In progress' ? '<span class="chip tone warn">In progress</span>' : ''}</span>
     <span class="tk-rs">${priFlag(t.priority)}</span><span class="tk-rs">${dueBadge(t)}</span>${(t.task_owner || t.created_by) !== t.owner || t.manager ? rolesLine(t) : avHTML(t.owner)}
@@ -291,10 +292,10 @@ VIEWS.tasks = {
   actions: () => `<button class="btn primary" id="newtask">${svg('plus')} New task</button>`,
   render(el) {
     let openId = null;
-    if (ST.arg) { if (/^p-[0-9a-f-]{36}$/.test(ST.arg)) { TF.proj = ST.arg.slice(2); TF.kind = 'project'; TF.scope = 'team'; if (TF.view === 'projects') TF.view = 'list'; } else if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } ST.arg = null; }
+    if (ST.arg) { if (/^p-[0-9a-f-]{36}$/.test(ST.arg)) { TF.proj = ST.arg.slice(2); TF.kind = 'project'; TF.scope = 'team'; if (TF.view === 'projects') TF.view = 'list'; } else if (/^[0-9a-f-]{36}$/.test(ST.arg)) openId = ST.arg; else if (ST.arg === 'overdue') { TF.view = 'list'; TF.q = ''; } else if (ST.arg === 'done') { TF.showDone = true; } else if (ST.arg === 'gmail') { TF.kind = 'gmail'; TF.scope = 'mine'; if (TF.view === 'projects') TF.view = 'list'; } ST.arg = null; }
     const today = todayStr(); const wkEnd = localDate(new Date(Date.now() + 7 * 864e5)); const doneSince = localDate(new Date(Date.now() - 30 * 864e5));
     const base = tasksFor(TF.scope).filter((t) => t.status !== 'Cancelled')
-      .filter((t) => TF.kind === 'all' || (TF.kind === 'routine' ? !!t.recur : (TF.kind === 'project') === isProjTask(t)))
+      .filter((t) => TF.kind === 'all' || (TF.kind === 'gmail' ? t.source === 'gmail' : TF.kind === 'routine' ? !!t.recur : (TF.kind === 'project') === isProjTask(t)))
       .filter((t) => !TF.proj || t.project_id === TF.proj)
       .filter((t) => !TF.pri || (t.priority || 'Normal') === TF.pri)
       .filter((t) => !TF.q || `${t.title} ${t.notes || ''} ${taskLink(t)?.name || ''} ${taskSubs(t.id).map((x) => x.title).join(' ')}`.toLowerCase().includes(TF.q.toLowerCase()));
@@ -313,7 +314,7 @@ VIEWS.tasks = {
       <section class="glass panel tk-wrap">
         <div class="tk-bar">
           <div class="seg">${[['mine', 'My tasks'], ['oversee', 'I own / manage'], ['given', 'Assigned by me'], ['team', 'Team']].map(([k, w]) => `<button data-sc="${k}" aria-pressed="${TF.scope === k}">${w} <span class="faint">${cnt[k].filter(taskOpen).length}</span></button>`).join('')}</div>
-          <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['routine', 'Routines'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
+          <div class="seg">${[['lead', 'Lead tasks'], ['project', 'Project tasks'], ['routine', 'Routines'], ['gmail', '📧 Gmail tasks'], ['all', 'All']].map(([k, w]) => `<button data-tkk="${k}" aria-pressed="${TF.kind === k}">${w}</button>`).join('')}</div>
           <div class="seg">${[['board', 'Board', 'kanban'], ['list', 'List', 'list']].map(([k, w, ic]) => `<button data-vw="${k}" aria-pressed="${TF.view === k}">${svg(ic)} ${w}</button>`).join('')}</div>
           <input type="search" id="tq" placeholder="Search tasks" value="${esc(TF.q)}">
           <select id="tpri" aria-label="Priority"><option value="">Any priority</option>${opts(TASK_PRI, TF.pri)}</select>
@@ -389,7 +390,7 @@ function liveCheck(t, type, row, prev) {
   } else if (t === 'leads' && prev && row.owner === me && typeof celebrate === 'function') {
     celebrate(prev, row);
   } else if (t === 'notifications' && type === 'INSERT' && row.user_id === me) {
-    chime(row.kind === 'bad' ? 'alert' : 'task'); liveNotice(row.title, row.body || '', () => (String(row.link || '').startsWith('tasks/') ? go('tasks', row.link.slice(6)) : row.lead_id ? openLead(row.lead_id) : go('automations')));
+    chime(row.kind === 'bad' ? 'alert' : 'task'); liveNotice((row.kind === 'gmail' ? '📧 ' : '') + row.title, row.body || '', () => (row.kind === 'gmail' ? go('gmail') : String(row.link || '').startsWith('tasks/') ? go('tasks', row.link.slice(6)) : row.lead_id ? openLead(row.lead_id) : go('automations')));
   } else if (t === 'chat_messages' && type === 'INSERT' && row.sender !== me) {
     const r = row.room || ''; const mine = r.startsWith('dm:') ? r.includes(me) : r === 'general' || (r.startsWith('dept:') && (DB.me.departments || []).includes(r.slice(5)));
     if (mine && ST.view !== 'chat') chime('chat');
