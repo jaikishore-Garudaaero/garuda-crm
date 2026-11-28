@@ -104,7 +104,7 @@ function ldRows(tab) {
 VIEWS.leads = {
   title: () => (ST.view === 'deals' ? 'Deals' : ST.view === 'followups' ? 'Follow-ups' : 'Leads'),
   sub: () => (ST.view === 'deals' ? 'Open deals with a value and a closure date, through to won or lost.' : ST.view === 'followups' ? 'Leads in a follow-up status, the next call first. Overdue ones are marked red.' : 'Every new enquiry until it becomes a follow-up or a deal. Convert a lead to a deal when there is a value and a closure date.'),
-  actions: () => `${hideSales() ? '' : `<button class="btn" id="r33btn" title="Every lead in the 33-point format, RPTO / CoE tabs">${svg('download')} 33-point report</button><button class="btn" id="callmode">${svg('phone')} Call mode</button>${ST.view === 'deals' ? '' : `<button class="btn primary" id="newlead">${svg('plus')} New lead</button>`}`}`,
+  actions: () => `${hideSales() ? '' : `<button class="btn" id="callmode">${svg('phone')} Call mode</button>${ST.view === 'deals' ? '' : `<button class="btn primary" id="newlead">${svg('plus')} New lead</button>`}`}`,
   render(el) {
     const tab = ST.view === 'deals' ? 'deals' : ST.view === 'followups' ? 'followups' : 'leads';
     if (ST.arg) { const a = ST.arg; ST.arg = null; if (QUICK[a]) { LF.quick = a; if (QUICK[a][2] && QUICK[a][2] !== tab) return go(QUICK[a][2], a); } }
@@ -126,7 +126,7 @@ VIEWS.leads = {
     const body = el.querySelector('#ldbody');
     if (mode === 'kanban') kanban(body, tab, () => this.render(el)); else ldList(body, tab, () => this.render(el));
   },
-  mount() { $('#newlead')?.addEventListener('click', () => newLeadModal()); $('#r33btn')?.addEventListener('click', () => report33Modal()); $('#callmode')?.addEventListener('click', () => callMode(ldRows(ST.view === 'deals' ? 'deals' : ST.view === 'followups' ? 'followups' : 'leads').filter(L.open))); },
+  mount() { $('#newlead')?.addEventListener('click', () => newLeadModal()); $('#callmode')?.addEventListener('click', () => callMode(ldRows(ST.view === 'deals' ? 'deals' : ST.view === 'followups' ? 'followups' : 'leads').filter(L.open))); },
 };
 VIEWS.deals = VIEWS.leads;
 VIEWS.followups = VIEWS.leads;
