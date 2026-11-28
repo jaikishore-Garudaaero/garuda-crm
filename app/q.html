@@ -6,7 +6,7 @@
 <title>Garuda Aerospace · Enquiry</title>
 <meta name="theme-color" content="#005aa9">
 <meta name="robots" content="noindex">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="img/ga-logo-blue.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
@@ -33,12 +33,12 @@
   .done .acts{display:flex;flex-direction:column;gap:9px;width:100%}
   .done .acts a{text-align:center;text-decoration:none;justify-content:center;white-space:normal;line-height:1.3}
   .hp{position:absolute;left:-5000px;width:1px;height:1px;overflow:hidden}
-  .camp{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--glass-strong);border:1px solid var(--hair)}
+  .camp{align-self:flex-start;display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--glass-strong);border:1px solid var(--hair)}
   @media (max-width:480px){.qf{margin:0 auto;border-radius:0;min-height:100vh}.qf .row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<main class="glass qf" id="qf" aria-live="polite"><div class="brand"><div class="mark">G</div><div><b>Garuda Aerospace</b><span>Enquiry</span></div></div><p class="muted">Loading…</p></main>
+<main class="glass qf" id="qf" aria-live="polite"><div class="brand"><img src="img/ga-logo-blue.png" alt="Garuda Aerospace" style="width:44px;height:auto;flex:none"><div><b>Garuda Aerospace</b><span>Enquiry</span></div></div><p class="muted">Loading…</p></main>
 <script src="config.js"></script>
 <script>
 'use strict';
@@ -46,7 +46,7 @@
   const cfg = window.GARUDA_CONFIG || {};
   const root = document.getElementById('qf');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const brand = '<div class="brand"><div class="mark">G</div><div><b>Garuda Aerospace</b><span>India\'s drone company · DGCA-approved RPTO</span></div></div>';
+  const brand = '<div class="brand"><img src="img/ga-logo-blue.png" alt="Garuda Aerospace" style="width:44px;height:auto;flex:none"><div><b>Garuda Aerospace</b><span>India\'s drone company · DGCA-approved RPTO</span></div></div>';
   const code = new URLSearchParams(location.search).get('c') || '';
   const base = (cfg.supabaseUrl || '').replace(/\/$/, '') + '/rest/v1/rpc/';
   const headers = { 'Content-Type': 'application/json', apikey: cfg.supabaseAnonKey || '', Authorization: 'Bearer ' + (cfg.supabaseAnonKey || '') };
