@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Garuda Aerospace · Drones, Training & Services</title>
+<meta name="description" content="Garuda Aerospace: India's drone company. We design, build, fly and train: Kisan agri drones, Droni, industrial and surveillance drones, drone services, DGCA RPTO pilot training and college Drone CoE partnerships.">
+<meta name="theme-color" content="#06274d">
+<meta property="og:title" content="Garuda Aerospace · Drones, Training & Services">
+<meta property="og:description" content="We design, build, fly and train. 44 drone platforms, 2,500+ pilots trained, 500+ government and enterprise clients.">
+<meta property="og:image" content="img/ga/agri.jpg">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --navy:#06274d; --blue:#005aa9; --sky:#2e8de6; --red:#d8262f; --ink:#0d1b2e; --ink2:#4a5a70; --ink3:#7d8aa0;
+    --paper:#f5f8fc; --card:#ffffff; --hair:#dde5f0; --tint:#eaf2fc;
+    --f-d:'Sora',ui-sans-serif,system-ui,sans-serif; --f-t:'Figtree',ui-sans-serif,system-ui,sans-serif;
+    color-scheme:light;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 var(--f-t)}
+  img{max-width:100%;display:block}
+  a{color:var(--blue)}
+  .wrap{max-width:1120px;margin:0 auto;padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+  h1,h2,h3{font-family:var(--f-d);line-height:1.18;text-wrap:balance;margin:0}
+  h2{font-size:clamp(26px,3.4vw,38px);letter-spacing:-.01em}
+  h3{font-size:18px}
+  .eyebrow{font:600 12px/1 var(--f-t);letter-spacing:.14em;text-transform:uppercase;color:var(--sky)}
+  .lede{color:var(--ink2);max-width:64ch;margin:10px 0 0;font-size:17px}
+  section{padding-block:64px}
+  .sec-head{display:flex;flex-direction:column;gap:8px;margin-bottom:28px}
+
+  /* nav */
+  .nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:rgba(6,39,77,.94);backdrop-filter:blur(10px)}
+  body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--navy);z-index:30}
+  .nav .wrap{display:flex;align-items:center;gap:18px;height:60px}
+  .logo{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font:700 17px var(--f-d)}
+  .logo i{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--sky),var(--red));display:grid;place-items:center;font-style:normal;font-size:16px}
+  .nav ul{display:flex;gap:4px;list-style:none;margin:0 0 0 auto;padding:0;overflow-x:auto;scrollbar-width:none}
+  .nav ul a{color:#cfe0f5;text-decoration:none;font-size:14px;padding:8px 10px;border-radius:8px;white-space:nowrap}
+  .nav ul a:hover{background:rgba(255,255,255,.1);color:#fff}
+  @media (max-width:760px){.nav ul{display:none}}
+
+  /* hero */
+  .hero{position:relative;color:#fff;background:var(--navy);overflow:hidden;padding-block:0}
+  .hero .bg{position:absolute;inset:0;background:url(img/ga/agri.jpg) center/cover;opacity:.38}
+  .hero .bg::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,var(--navy) 18%,rgba(6,39,77,.55) 60%,rgba(6,39,77,.2))}
+  .hero .wrap{position:relative;padding-block:clamp(70px,11vw,130px)}
+  .hero h1{font-size:clamp(34px,5.6vw,62px);font-weight:800;letter-spacing:-.02em;max-width:15ch}
+  .hero h1 em{font-style:normal;color:#8cc4ff}
+  .hero p{max-width:56ch;color:#d6e5f7;font-size:18px;margin:16px 0 0}
+  .cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:12px;font:600 15px var(--f-t);text-decoration:none;border:1px solid transparent;cursor:pointer}
+  .btn.p{background:var(--red);color:#fff}
+  .btn.p:hover{background:#b91d25}
+  .btn.g{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.28)}
+  .btn.o{background:var(--card);color:var(--blue);border-color:var(--hair)}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:rgba(255,255,255,.14);border-radius:16px;overflow:hidden;margin-top:46px}
+  .stats div{background:rgba(6,39,77,.72);padding:18px 16px}
+  .stats b{display:block;font:800 clamp(22px,3vw,32px)/1.1 var(--f-d)}
+  .stats span{color:#b9cde6;font-size:13.5px}
+  @media (max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}.stats div:last-child{grid-column:span 2}}
+
+  /* cards */
+  .grid{display:grid;gap:14px}
+  .g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  @media (max-width:900px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr 1fr}}
+  @media (max-width:560px){.g4,.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--hair);border-radius:16px;padding:20px;min-width:0}
+  .card p{margin:8px 0 0;color:var(--ink2);font-size:15px}
+  .card .ic{width:40px;height:40px;border-radius:11px;background:var(--tint);color:var(--blue);display:grid;place-items:center;margin-bottom:12px;font:700 18px var(--f-d)}
+  .tag{display:inline-block;font:600 11.5px var(--f-t);letter-spacing:.06em;text-transform:uppercase;color:var(--blue);background:var(--tint);padding:4px 9px;border-radius:999px}
+
+  /* drones */
+  .feature{display:grid;grid-template-columns:1.1fr 1fr;gap:0;background:var(--card);border:1px solid var(--hair);border-radius:20px;overflow:hidden;margin-bottom:14px}
+  .feature img{width:100%;height:100%;object-fit:cover;min-height:260px}
+  .feature .txt{padding:26px;display:flex;flex-direction:column;gap:10px}
+  .specs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:6px 0 0;padding:0;list-style:none}
+  .specs li{background:var(--paper);border-radius:10px;padding:9px 11px;font-size:13.5px;color:var(--ink2)}
+  .specs b{display:block;color:var(--ink);font-size:15px}
+  @media (max-width:760px){.feature{grid-template-columns:1fr}}
+  .fam{display:flex;flex-direction:column;gap:10px}
+  .fam ul{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px}
+  .fam li{font-size:13.5px;border:1px solid var(--hair);border-radius:999px;padding:5px 10px;background:var(--paper)}
+
+  /* split */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:center}
+  .split img{border-radius:18px;width:100%;aspect-ratio:4/3;object-fit:cover}
+  @media (max-width:860px){.split{grid-template-columns:1fr}}
+  .ticks{list-style:none;padding:0;margin:14px 0 0;display:flex;flex-direction:column;gap:9px}
+  .ticks li{padding-left:28px;position:relative;color:var(--ink2)}
+  .ticks li::before{content:"";position:absolute;left:0;top:5px;width:16px;height:16px;border-radius:50%;background:var(--tint);box-shadow:inset 0 0 0 5px var(--blue)}
+
+  /* courses */
+  .course{display:flex;flex-direction:column;gap:8px}
+  .course .meta{display:flex;flex-wrap:wrap;gap:6px}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:16px;border-radius:14px;overflow:hidden;border:1px solid var(--hair)}
+  .flow div{background:var(--card);padding:14px;border-right:1px solid var(--hair)}
+  .flow div:last-child{border-right:0;background:var(--blue);color:#fff}
+  .flow b{display:block;font-family:var(--f-d);font-size:14px}
+  .flow span{font-size:13.5px;color:var(--ink2)} .flow div:last-child span{color:#d6e5f7}
+  @media (max-width:640px){.flow{grid-template-columns:1fr 1fr}.flow div:nth-child(2){border-right:0}}
+  .table-wrap{overflow-x:auto;border:1px solid var(--hair);border-radius:14px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:14.5px}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--hair)}
+  th{font:600 12px var(--f-t);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);background:var(--paper)}
+  tr:last-child td{border-bottom:0}
+
+  .dark{background:var(--navy);color:#fff}
+  .dark .lede,.dark .card p{color:#c3d5ec}
+  .dark .card{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14)}
+  .dark .card .ic{background:rgba(140,196,255,.14);color:#8cc4ff}
+  .logos{display:flex;flex-wrap:wrap;gap:8px 18px;color:#b9cde6;font:600 15px var(--f-d)}
+  .video{position:relative;display:block;border-radius:18px;overflow:hidden;text-decoration:none;color:#fff}
+  .video img{width:100%;aspect-ratio:16/9;object-fit:cover}
+  .video::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(6,39,77,.8),rgba(6,39,77,.1))}
+  .video .play{position:absolute;inset:0;display:grid;place-items:center;z-index:1}
+  .video .play i{width:76px;height:76px;border-radius:50%;background:var(--red);display:grid;place-items:center;font-style:normal;font-size:28px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  .video .cap{position:absolute;left:18px;bottom:16px;z-index:1;font:700 18px var(--f-d)}
+
+  footer{background:#041a33;color:#b9cde6;padding-block:44px}
+  footer .grid{gap:24px}
+  footer b{color:#fff;font-family:var(--f-d)}
+  footer a{color:#fff;text-decoration:none}
+  .fine{font-size:12.5px;color:var(--ink3);margin-top:12px}
+  .dark .fine,footer .fine{color:#7f97b6}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Sections"><div class="wrap">
+  <a class="logo" href="#top"><i>G</i>Garuda Aerospace</a>
+  <ul><li><a href="#about">About</a></li><li><a href="#drones">Drones</a></li><li><a href="#services">Services</a></li><li><a href="#academy">Pilot training</a></li><li><a href="#colleges">For colleges</a></li><li><a href="#contact">Contact</a></li></ul>
+</div></nav>
+
+<header class="hero" id="top"><div class="bg" role="img" aria-label="Garuda agri drone flying over a campus"></div><div class="wrap">
+  <span class="eyebrow" style="color:#8cc4ff">India's drone company · Chennai</span>
+  <h1 style="margin-top:14px">We design, build, fly and <em>train.</em></h1>
+  <p>Garuda Aerospace makes drones for agriculture, industry, safety and defence, flies them as a service across India, and trains the pilots who run them, from our own DGCA-approved training organisation.</p>
+  <div class="cta"><a class="btn p" href="#contact">Talk to us</a><a class="btn g" href="https://drive.google.com/file/d/16UC1vrs56BCYAKPo74FzrX3RLtHRWeWc/view" target="_blank" rel="noopener">▶ Watch our story</a></div>
+  <div class="stats">
+    <div><b>2015</b><span>founded in Chennai</span></div>
+    <div><b>44</b><span>drone platforms, 45+ services</span></div>
+    <div><b>1.2 M+</b><span>flight hours flown</span></div>
+    <div><b>2,500+</b><span>pilots trained</span></div>
+    <div><b>500+</b><span>government &amp; enterprise clients</span></div>
+  </div>
+</div></header>
+
+<section id="about"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow">Who we are</span><h2>A complete drone stack, built in house</h2>
+    <p class="lede">From the airframe to the pilot to the data, Garuda does every part itself, so customers deal with one team that knows the whole job.</p></div>
+  <div class="grid g4">
+    <div class="card"><div class="ic">1</div><h3>Manufacturing</h3><p>Indigenous platforms designed, built and DGCA type-certified in Chennai.</p></div>
+    <div class="card"><div class="ic">2</div><h3>Drone as a Service</h3><p>Spraying, mapping, inspection and surveillance, flown by our own pilots.</p></div>
+    <div class="card"><div class="ic">3</div><h3>Pilot training</h3><p>A DGCA-approved RPTO, one of India's largest, with centres across the country.</p></div>
+    <div class="card"><div class="ic">4</div><h3>Software &amp; data</h3><p>AI and analytics that turn every flight into a decision you can act on.</p></div>
+  </div>
+  <div class="grid g4" style="margin-top:14px">
+    <div class="card"><span class="tag">First in India</span><p style="color:var(--ink)">The first company to receive dual DGCA approval, for drone manufacturing and for pilot training.</p></div>
+    <div class="card"><span class="tag">Scale</span><p style="color:var(--ink)">200+ team (25% PhDs), 400+ cities, 28 states and 16 countries, with US and UK subsidiaries.</p></div>
+    <div class="card"><span class="tag">Innovation</span><p style="color:var(--ink)">30 patents across India, the UK and Germany.</p></div>
+    <div class="card"><span class="tag">Brand</span><p style="color:var(--ink)">M.S. Dhoni is our brand ambassador. The Kisan Drone Yatra was launched by the Prime Minister.</p></div>
+  </div>
+</div></section>
+
+<section class="dark"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow" style="color:#8cc4ff">Trusted by</span><h2>Government, PSU and enterprise teams</h2></div>
+  <div class="logos"><span>ISRO</span><span>HAL</span><span>BEML</span><span>NTPC</span><span>ONGC</span><span>Indian Oil</span><span>CRPF</span><span>CISF</span><span>NHAI</span><span>Delhi Metro</span><span>SAIL</span><span>IFFCO</span><span>and 400+ more</span></div>
+  <p class="lede" style="margin-top:18px">Kisan Drone Yatra: 478 districts, 28 states and 400+ Krishi Vigyan Kendras reached. Technology partners include Cognizant, Thales, HAL, DRDO, HFCL and BEL.</p>
+</div></section>
+
+<section id="drones"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow">Our drones</span><h2>44 platforms, one family</h2>
+    <p class="lede">Built for the field: from the agri drone that sprays a farm in minutes to compact camera drones, inspection drones and long-range surveillance aircraft.</p></div>
+
+  <article class="feature">
+    <img src="img/ga/agri.jpg" alt="Garuda Kisan agri drone in flight" loading="lazy">
+    <div class="txt"><span class="tag">Agriculture · DGCA type-certified</span><h3 style="font-size:24px">Kisan Agri Drone</h3>
+      <p style="margin:0;color:var(--ink2)">India's most recognised agri drone: precise spraying of pesticides and nutrients, easy to learn and safe to fly. Eligible for SMAM and Namo Drone Didi subsidies and Agri Infra Fund loans.</p>
+      <ul class="specs"><li><b>8 L / 10 L</b>spray tank</li><li><b>1,500–2,000 m²/min</b>spray efficiency</li><li><b>15–20 microns</b>nozzle droplet</li><li><b>up to 1.5 km</b>flying radius</li></ul></div>
+  </article>
+  <article class="feature">
+    <div class="txt"><span class="tag">Consumer &amp; imaging</span><h3 style="font-size:24px">Droni</h3>
+      <p style="margin:0;color:var(--ink2)">India's smart personal drone, launched with M.S. Dhoni: a foldable camera drone with one-throw take-off, voice and gesture control and FPV flying, also used for inspection and monitoring.</p>
+      <ul class="specs"><li><b>1080p / 25 fps</b>camera</li><li><b>30 min</b>flight time</li><li><b>2–5 km</b>range</li><li><b>12 m/s</b>top speed</li></ul></div>
+    <img src="img/ga/fly.jpg" alt="Garuda pilots flying a drone in the field" loading="lazy">
+  </article>
+
+  <div class="grid g3" style="margin-top:6px">
+    <div class="card fam"><span class="tag">Agriculture</span><ul><li>Kisan Agri Drone</li><li>Seed spreading drone</li><li>Crop pest &amp; disease inspection</li><li>Crop health &amp; yield monitoring</li></ul></div>
+    <div class="card fam"><span class="tag">Industry &amp; inspection</span><ul><li>Suraj: pipeline &amp; gas-leak detection</li><li>Surya: solar panel cleaning</li><li>Mining &amp; tunnel inspection</li><li>Internal boiler inspection</li><li>Stringing drone</li><li>Industry 4.0 / warehouse drone</li><li>Pollution monitoring</li></ul></div>
+    <div class="card fam"><span class="tag">Surveillance &amp; mapping</span><ul><li>Vayu: fixed-wing surveillance &amp; mapping</li><li>BVLOS high-altitude rugged UAV</li><li>Long-range surveillance</li><li>Tethered drone</li><li>Hybrid drone</li></ul></div>
+    <div class="card fam"><span class="tag">Safety &amp; emergency</span><ul><li>Fire-fighting drop drone</li><li>Loudspeaker drone</li><li>Anti-drone system</li><li>Disaster response</li></ul></div>
+    <div class="card fam"><span class="tag">Delivery &amp; logistics</span><ul><li>IPPO delivery drone</li><li>Medical supply delivery</li><li>Warehouse management</li></ul></div>
+    <div class="card fam"><span class="tag">Defence &amp; beyond air</span><ul><li>Border surveillance</li><li>Drone swarms</li><li>UGV mini tank</li><li>Automated water vehicle</li><li>Unmanned submerged vehicle</li></ul><p class="fine" style="margin:0">Defence platforms: details on request.</p></div>
+  </div>
+</div></section>
+
+<section id="services" style="background:var(--tint)"><div class="wrap split">
+  <div>
+    <div class="sec-head"><span class="eyebrow">Drone as a Service</span><h2>We fly it for you</h2>
+      <p class="lede">Pay for the result, not the drone. Our pilots and data team deliver the survey, the spraying or the inspection report.</p></div>
+    <ul class="ticks">
+      <li>Agri spraying, crop zonation and monitoring</li>
+      <li>Land mapping, surveying, orthomosaics, contours and LiDAR</li>
+      <li>Solar, wind-mill, chimney, highway and structural inspection</li>
+      <li>Oil &amp; gas pipeline leak detection</li>
+      <li>Volumetric and stockpile measurement, warehouse inventory</li>
+      <li>Day and night security surveillance, drone delivery</li>
+    </ul>
+    <p class="fine">MRO on Wheels: mobile service units bring repairs and maintenance to your site, so drones spend less time on the ground.</p>
+  </div>
+  <img src="img/ga/yatra.jpg" alt="Garuda Kisan Drone Yatra meeting farmers in a village" loading="lazy">
+</div></section>
+
+<section id="academy"><div class="wrap">
+  <div class="split" style="margin-bottom:30px">
+    <img src="img/ga/class.jpg" alt="Garuda Aerospace Academy classroom" loading="lazy">
+    <div>
+      <div class="sec-head"><span class="eyebrow">Garuda Aerospace Academy · RPTO</span><h2>Become a DGCA-certified drone pilot</h2>
+        <p class="lede">DGCA-approved Remote Pilot Training Organisation (Authorisation No. 23/2022). Ground theory, simulator, assembly and real flying, with batches every month.</p></div>
+      <ul class="ticks"><li>Centres in Chennai, Jaipur, Madhya Pradesh and Assam, or on your campus where approved</li><li>DGCA type-certified training drones, AV classrooms, simulators, airfield and maintenance bay</li><li>Drone and third-party insurance, safety induction before every flight</li><li>Remote Pilot Certificate issued by DGCA on the DigitalSky platform</li></ul>
+    </div>
+  </div>
+  <div class="grid g3">
+    <div class="card course"><span class="tag">Entry level</span><h3>Small Class RPC</h3><p>Drones up to 25 kg. Survey, mapping, inspection and aerial imaging.</p><div class="meta"><span class="tag" style="background:var(--paper);color:var(--ink2)">10th pass · 18–65 yrs</span></div></div>
+    <div class="card course"><span class="tag">High demand</span><h3>Medium Class RPC</h3><p>Drones of 25–150 kg. Agri spraying and heavy-lift missions, with payload and field procedures.</p><div class="meta"><span class="tag" style="background:var(--paper);color:var(--ink2)">10th pass · 18–65 yrs</span></div></div>
+    <div class="card course"><span class="tag">Advanced</span><h3>Train the Trainer</h3><p>DGCA-approved instructor rating: teach at an RPTO, a college or a CoE.</p><div class="meta"><span class="tag" style="background:var(--paper);color:var(--ink2)">RPC holder + graduate</span></div></div>
+  </div>
+  <div class="flow" aria-label="How the 6-day course runs"><div><b>Day 1–2</b><span>Ground theory, 11 DGCA modules</span></div><div><b>Day 3</b><span>Theory test + simulator</span></div><div><b>Day 4–6</b><span>Flying + evaluation</span></div><div><b>Certificate</b><span>DGCA Remote Pilot Certificate</span></div></div>
+  <div class="sec-head" style="margin-top:40px"><h3 style="font-size:22px">Where a drone licence can take you</h3></div>
+  <div class="table-wrap"><table><thead><tr><th>Career path</th><th>Typical earning</th></tr></thead><tbody>
+    <tr><td>Freelance pilot</td><td>₹40K – ₹1L / month</td></tr><tr><td>Corporate pilot</td><td>₹6 – 8 LPA</td></tr>
+    <tr><td>Drone-as-a-Service entrepreneur</td><td>₹5L+ / month potential</td></tr><tr><td>R&amp;D / manufacturing technician</td><td>₹5 – 6 LPA</td></tr><tr><td>Instructor / RPTO head</td><td>₹8 – 10 LPA</td></tr></tbody></table></div>
+  <p class="fine">Placement assistance for eligible pilots, including Garuda's own drone-services network. Earnings are indicative and not guaranteed.</p>
+</div></section>
+
+<section id="colleges" class="dark"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow" style="color:#8cc4ff">Garuda Drone CoE · Garuda Sky Campus</span><h2>Bring the drone revolution to your campus</h2>
+    <p class="lede">Four simple ways for colleges and universities to partner. Most start with a one-day activity, then add training and a lab.</p></div>
+  <div class="grid g4">
+    <div class="card"><div class="ic">01</div><h3>One-day activities</h3><p>Dronistaan Day, expert talks, hands-on drone days, simulator contests, drone racing and agri demos.</p></div>
+    <div class="card"><div class="ic">02</div><h3>Bulk student training</h3><p>DGCA pilot certification for batches, plus a 5-day Drone Assembly Technician course.</p></div>
+    <div class="card"><div class="ic">03</div><h3>Drone lab packages</h3><p>Starter, Advanced and full Drone CoE labs: every lab includes an agri drone, Droni drones, DIY kits and simulators.</p></div>
+    <div class="card"><div class="ic">04</div><h3>RPTO partnership</h3><p>A DGCA training centre on campus, with revenue shared on every batch.</p></div>
+  </div>
+  <div class="split" style="margin-top:34px">
+    <img src="img/ga/lab.jpg" alt="Students assembling drones in a Garuda lab" loading="lazy">
+    <div><h3 style="font-size:22px">12 Garuda-certified courses, each with a hands-on kit</h3>
+      <p class="lede">Drone Basics · Simulator Flying · Drone Assembly Technician · Maintenance &amp; Repair · Drone Programming · Electronics for Drones · Mapping &amp; Data · Aerial Photography · Agri Drone Operations · AI for Drones · Drone Racing · Drone Entrepreneurship</p>
+      <ul class="ticks" style="color:#c3d5ec"><li style="color:#c3d5ec">Credits under NEP 2020 and an evidence pack for NBA / NAAC / NIRF</li><li style="color:#c3d5ec">Faculty development and Train the Trainer certification</li><li style="color:#c3d5ec">Internships, projects and placement support for students</li></ul></div>
+  </div>
+</div></section>
+
+<section><div class="wrap split">
+  <a class="video" href="https://drive.google.com/file/d/16UC1vrs56BCYAKPo74FzrX3RLtHRWeWc/view" target="_blank" rel="noopener">
+    <img src="img/ga/cert.jpg" alt="" loading="lazy"><span class="play"><i>▶</i></span><span class="cap">Garuda Aerospace · corporate film</span></a>
+  <div><div class="sec-head"><span class="eyebrow">See it for yourself</span><h2>Watch how Garuda works</h2>
+    <p class="lede">From the factory floor in Chennai to farms, factories and campuses across India: a short film about what we build and the people who fly it.</p></div>
+    <a class="btn o" href="https://drive.google.com/file/d/16UC1vrs56BCYAKPo74FzrX3RLtHRWeWc/view" target="_blank" rel="noopener">▶ Play the video</a></div>
+</div></section>
+
+<footer id="contact"><div class="wrap">
+  <div class="grid g3">
+    <div><b style="font-size:20px">Garuda Aerospace Ltd.</b><p style="margin:8px 0 0">Chennai, India · <a href="https://www.garudaaerospace.com" target="_blank" rel="noopener">www.garudaaerospace.com</a></p></div>
+    <div><b>Training &amp; admissions</b><p style="margin:8px 0 0">Call <a href="tel:+917824833884">+91 78248 33884</a><br>WhatsApp <a href="https://wa.me/917788868884" target="_blank" rel="noopener">+91 77888 68884</a><br><a href="mailto:training@garudaaerospace.com">training@garudaaerospace.com</a></p></div>
+    <div><b>Colleges, labs &amp; business</b><p style="margin:8px 0 0">Tell us what you need and our team will call you back.<br><a href="mailto:head.training@garudaaerospace.com">head.training@garudaaerospace.com</a></p></div>
+  </div>
+  <p class="fine">Figures from Garuda Aerospace's 2026 materials. Course details as per DGCA norms; fees and batch dates on request. © Garuda Aerospace Ltd.</p>
+</div></footer>
+</body>
+</html>

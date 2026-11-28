@@ -11,7 +11,7 @@
       { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
       { "key": "Permissions-Policy", "value": "geolocation=(self), camera=(), microphone=(self)" }
     ] },
-    { "source": "/(config.js|sw.js|index.html|register.html)", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] },
+    { "source": "/(config.js|sw.js|index.html|register.html|q.html|garuda.html)", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] },
     { "source": "/js/(.*)", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] }
   ]
 }

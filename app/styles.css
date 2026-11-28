@@ -2865,3 +2865,18 @@ tr.pt-r td{background:color-mix(in srgb,var(--accent) 4%,var(--glass-strong))}
 .gm-ap-open svg{width:13px;height:13px}
 .gm-set textarea{width:100%;margin:8px 0;font-family:inherit}
 @media (max-width:520px){.gm-cards,.gm-aps{grid-template-columns:1fr}}
+
+/* ---------- QR Campaigns (v61) ---------- */
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-bottom:12px}
+.qr-card{display:flex;gap:14px;align-items:flex-start;min-width:0}
+.qr-img{width:132px;height:132px;flex:none;border-radius:12px;overflow:hidden;background:#fff;border:1px solid var(--hair)}
+.qr-img svg{width:100%;height:100%;display:block}
+.qr-meta{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.qr-name{font-weight:700;font-size:15px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.qr-nums{display:flex;gap:12px;font-size:13px;color:var(--ink2)}
+.qr-nums b{color:var(--ink);font-size:16px}
+.qr-link{font-size:11.5px;overflow-wrap:anywhere;color:var(--ink2)}
+.qr-btns{display:flex;gap:6px;flex-wrap:wrap}
+.qr-btns svg{width:14px;height:14px}
+.qr-live{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--good);margin-left:6px;vertical-align:middle;animation:gmpulse 1.6s infinite}
+@media (max-width:520px){.qr-card{flex-direction:column}.qr-img{width:160px;height:160px}}

@@ -382,6 +382,10 @@ function onLiveChange(t, type, row, prev) {
 function liveCheck(t, type, row, prev) {
   if (DB.recentLocal(row.id)) return;
   const me = DB.me.id;
+  if (t === 'leads' && type === 'INSERT' && row.source === 'QR Code' && ST.view === 'qr') {
+    chime('task'); liveNotice('New QR lead: ' + (row.contact_name || row.name), (DB.get('mkt_campaigns', row.mkt_campaign_id)?.name || 'QR') + (row.enquiry_for ? ' · ' + row.enquiry_for : ''), () => openLead(row.id));
+    return;
+  }
   if (t === 'work_tasks' && row.owner === me && (type === 'INSERT' || (prev && prev.owner !== me)) && row.created_by !== me) {
     chime('task'); liveNotice(`New task from ${DB.pname(row.created_by)}`, row.title + (row.due_date ? ' · due ' + fmtDate(row.due_date) : ''), () => go('tasks', row.id));
   } else if (t === 'work_subtasks' && row.owner === me && (type === 'INSERT' || (prev && prev.owner !== me))) {

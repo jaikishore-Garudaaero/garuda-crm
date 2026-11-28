@@ -69,6 +69,7 @@ const ICON = {
   pay: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/>',
+  qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2zM16 16h2v2h-2z"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.6-5.3 3.6-8.3.6 1.9 1.7 3 2.9 3.7.3-2.3 1.5-4.4 3.3-6.2.4 3.8 3.2 5.6 3.2 10.5 0 3.7-2.6 6.5-6.5 6.5z"/>',
@@ -260,7 +261,7 @@ const NAV = [
   ['Workspace', [['connect', 'Garuda Connect', 'ring', () => !hideSales()], ['chat', 'Garuda Chat', 'chat', () => true]]],
   ['Overview', [['command', 'Command Centre', 'dash', canCEO], ['mydash', 'My dashboard', 'me', () => true], ['revenue', 'Revenue', 'rev', canRevenue], ['collections', 'Collections', 'pay', canRevenue], ['sales', 'Sales Dashboard', 'pipe', () => !hideSales()], ['team', 'Team Dashboard', 'team', () => !hideSales() && hasTeam()], ['taskdash', 'Task Dashboard', 'tdash', () => true]]],
   ['Sales', [['leads', 'Leads', 'leads', () => !hideSales()], ['followups', 'Follow-ups', 'clock', () => !hideSales()], ['deals', 'Deals', 'deal', () => !hideSales()], ['visits', 'Meetings', 'pin', () => true], ['accounts', 'Accounts', 'inst', () => !hideSales()], ['automations', 'Automations', 'spark', () => !hideSales() && !isMember()]]],
-  ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()]]],
+  ['Marketing', [['email', 'Email Marketing', 'mkt', () => canEmail()], ['ads', 'Ad Campaigns', 'ads', () => canCampaigns()], ['campaigns', 'Other Campaigns', 'web', () => canCampaigns()], ['qr', 'QR Campaigns', 'qr', () => canCampaigns() || isHead()]]],
   ['Execution', [['gmail', 'Gmail Desk', 'mail', () => true], ['tasks', 'Tasks', 'task', () => true], ['projects', 'Project Management', 'proj', () => true], ['escalations', 'Escalations', 'warn', () => true]]],
   ['Control', [['activity', 'Activity log', 'eye', () => isSuper()]]],
 ];
